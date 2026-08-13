@@ -112,6 +112,7 @@ test('resumo do Plano fica antes da edição e informa nome escapado e contagens
   assert.match(html, /2 matérias/);
   assert.match(html, /2 categorias/);
   assert.match(html, /3 assuntos/);
+  assert.equal((html.match(/tf-plano-resumo/g) || []).length, 1, 'deve renderizar exatamente um resumo do plano');
   assert.ok(html.indexOf('tf-plano-resumo') < html.indexOf('for="tf-plano-texto"'), 'resumo precisa preceder o editor');
   assert.equal(valorDoTextarea(html), primeiroTexto);
 });

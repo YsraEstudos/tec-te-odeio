@@ -161,7 +161,7 @@
             '<textarea id="tf-plano-texto" placeholder=\'Cole aqui o conteúdo do mapeamento_de_materias.json\n\nEx: {"materias": [{"titulo": "Classes de palavras", "materias_tecconcursos": [{"codigo": 12519, "materia": "Língua Portuguesa (Português) > Morfologia > Classes de Palavras"}]}]}\'>' + escapeHtml(texto) + '</textarea>' +
             '<div class="tf-linha" style="justify-content:flex-end">' +
             '  <button class="tf-btn" id="tf-carregar">Carregar plano</button>' +
-            '</div>' + resumo +
+            '</div>' +
             '<div class="tf-plano-arvore">' + arvore + '</div>' +
             '<div id="tf-plano-aviso"></div>';
     }
