@@ -80,7 +80,7 @@
         return {
             plano: null, planoTexto: '', config: null, status: 'parado', fase: 'nenhuma', modo: 'lote',
             planIndex: 0, loteInicio: 0, loteFim: 0, cadernoAtual: null,
-            biblioteca: {}, impressao: { data: '', usadas: 0 }, impressaoParte: null,
+            biblioteca: {}, logs: [], impressao: { data: '', usadas: 0 }, impressaoParte: null,
             mensagem: '', erro: null, retomada: false, atualizadoEm: null
         };
     }
@@ -90,6 +90,13 @@
     function validarEstado(valor) {
         return !!(valor && typeof valor === 'object' && valor.biblioteca &&
             typeof valor.biblioteca === 'object' && !Array.isArray(valor.biblioteca));
+    }
+
+    function normalizarEstadoPersistido(valor) {
+        if (!valor || typeof valor !== 'object') return valor;
+        if (!Array.isArray(valor.logs)) valor.logs = [];
+        if (valor.logs.length > 600) valor.logs = valor.logs.slice(-600);
+        return valor;
     }
 
     function validarMetaV2(meta) {
@@ -113,13 +120,13 @@
             var caderno = agregado.biblioteca[questao && questao.cadernoId];
             if (caderno && questao.id) caderno.questoes.push(questao);
         });
-        return validarEstado(agregado) ? agregado : null;
+        return validarEstado(agregado) ? normalizarEstadoPersistido(agregado) : null;
     }
 
     function parseLegadoV1(json) {
         var legado;
         try { legado = typeof json === 'string' ? JSON.parse(json) : json; } catch (e) { return null; }
-        return validarEstado(legado) ? legado : null;
+        return validarEstado(legado) ? normalizarEstadoPersistido(legado) : null;
     }
 
     function abrirIdb() {
@@ -321,7 +328,12 @@
             saveTimer = null; saveCritical = false;
             var snapshot;
             try { snapshot = JSON.stringify(sanitizarParaPersistencia(estado)); }
-            catch (e) { log('ERRO: falha ao serializar o estado (' + (e && e.name || e) + ').'); estado.status = 'pausado'; return; }
+            catch (e) {
+                log('ERRO: falha ao serializar o estado (' + (e && e.name || e) + ').', {
+                    tipo: 'erro', nivel: 'erro', persist: false
+                });
+                estado.status = 'pausado'; return;
+            }
             salvarEstadoIdb(snapshot);
         }, atraso);
     }

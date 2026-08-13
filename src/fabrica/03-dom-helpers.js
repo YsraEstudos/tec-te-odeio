@@ -45,8 +45,3 @@
         return workerSleep(Math.round(ms));
     }
 
-    function log(msg) {
-        console.log('[TecFabrica] ' + msg);
-        if (UI && typeof UI.appendLog === 'function') UI.appendLog(msg);
-    }
-

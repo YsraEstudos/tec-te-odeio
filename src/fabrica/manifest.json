@@ -56,6 +56,12 @@
       "lines": "96-147"
     },
     {
+      "id": "03-log",
+      "file": "03-log.js",
+      "section": "LOG OPERACIONAL ESTRUTURADO",
+      "lines": ""
+    },
+    {
       "id": "04",
       "file": "04-plano.js",
       "section": "PLANO (aceita o JSON do usuário e o formato Markdown consolidado)",

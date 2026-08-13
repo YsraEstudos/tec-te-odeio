@@ -65,6 +65,7 @@ test('reconstrução meta+cadernos+questões preserva o agregado', () => {
 test('estado vazio inicializa texto do plano e v2 preserva texto original', () => {
   const hooks = loadHooks();
   assert.equal(hooks.estadoVazio().planoTexto, '');
+  assert.deepEqual(JSON.parse(JSON.stringify(hooks.estadoVazio().logs)), []);
   const restored = hooks.reconstruirEstadoV2(
     { key: 'state', schema: 2, planoTexto: '{"materias":[]}' },
     [],
@@ -73,10 +74,41 @@ test('estado vazio inicializa texto do plano e v2 preserva texto original', () =
   assert.equal(restored.planoTexto, '{"materias":[]}');
 });
 
+test('estado antigo sem logs é normalizado sem misturar logs à biblioteca', () => {
+  const hooks = loadHooks();
+  const restored = hooks.reconstruirEstadoV2(
+    { key: 'state', schema: 2, status: 'pausado' },
+    [{ id: 'c1', titulo: 'Caderno' }],
+    []
+  );
+
+  assert.deepEqual(JSON.parse(JSON.stringify(restored.logs)), []);
+  assert.equal(restored.biblioteca.c1.logs, undefined);
+});
+
+test('reconstrução v2 preserva logs no estado e não na biblioteca', () => {
+  const hooks = loadHooks();
+  const logs = [{ id: 1, at: '2026-08-13T12:00:00.000Z', mensagem: 'ok' }];
+  const restored = hooks.reconstruirEstadoV2(
+    { key: 'state', schema: 2, logs, planoTexto: 'plano' },
+    [{ id: 'c1', titulo: 'Caderno' }],
+    [{ id: 'q1', cadernoId: 'c1', number: 1 }]
+  );
+
+  assert.deepEqual(JSON.parse(JSON.stringify(restored.logs)), logs);
+  assert.equal(restored.biblioteca.c1.logs, undefined);
+  assert.deepEqual(JSON.parse(JSON.stringify(restored.biblioteca.c1.questoes)), [
+    { id: 'q1', cadernoId: 'c1', number: 1 }
+  ]);
+});
+
 test('parser de migração aceita JSON v1 válido e rejeita inválido', () => {
   const hooks = loadHooks();
   const valid = { biblioteca: { c1: { id: 'c1', questoes: [] } } };
-  assert.deepEqual(hooks.parseLegadoV1(JSON.stringify(valid)), valid);
+  assert.deepEqual(JSON.parse(JSON.stringify(hooks.parseLegadoV1(JSON.stringify(valid)))), {
+    ...valid,
+    logs: []
+  });
   assert.equal(hooks.parseLegadoV1('{not-json'), null);
   assert.equal(hooks.parseLegadoV1(JSON.stringify({ status: 'parado' })), null);
 });
