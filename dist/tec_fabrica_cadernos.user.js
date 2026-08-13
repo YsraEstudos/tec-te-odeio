@@ -1217,10 +1217,37 @@
         }, CONFIG.loadTimeout, callback);
     }
 
+    function normalizarNumeroInterface(valor) {
+        var texto = String(valor == null ? '' : valor).replace(/\s/g, '');
+        if (!/^\d[\d.,]*$/.test(texto)) return null;
+        var numero = parseInt(texto.replace(/[.,]/g, ''), 10);
+        return numero > 0 ? numero : null;
+    }
+
     function lerPosicao() {
         var cont = document.querySelector('.questao-cabecalho-informacoes-numero');
-        var m = cont ? cont.textContent.match(/Quest[aã]o\s+(\d+)\s+de\s+(\d+)/i) : null;
-        return m ? { posicao: parseInt(m[1], 10), total: parseInt(m[2], 10) } : null;
+        if (!cont) {
+            log('Posição da questão ainda não está disponível no DOM.', {
+                tipo: 'observacao', nivel: 'warn', fase: 'coletando',
+                contexto: { resultado: 'elemento-ausente' }
+            });
+            return null;
+        }
+        var texto = String(cont.textContent || '')
+            .replace(/\u00a0/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        var m = texto.match(/Quest[aã]o\s+([\d.,\s]+)\s+de\s+([\d.,\s]+)/i);
+        var posicao = m ? normalizarNumeroInterface(m[1]) : null;
+        var total = m ? normalizarNumeroInterface(m[2]) : null;
+        if (!posicao || !total) {
+            log('Posição da questão não pôde ser interpretada.', {
+                tipo: 'observacao', nivel: 'warn', fase: 'coletando',
+                contexto: { resultado: 'texto-incompativel', textoCabecalho: texto }
+            });
+            return null;
+        }
+        return { posicao: posicao, total: total };
     }
     /* =====================================================================
      * EXTRAÇÃO DA QUESTÃO (DOM, HTML limpo + metadados)
@@ -2000,9 +2027,25 @@
                 });
             }
             var pos = lerPosicao();
-            var total = caderno.total || (pos ? pos.total : colecao.length);
+            if (!pos) {
+                caderno.completo = false;
+                caderno.questoes = colecao;
+                salvarEstado();
+                log('Coleta interrompida: não foi possível confirmar a posição atual; o caderno não será marcado como completo.', {
+                    tipo: 'erro', nivel: 'erro', fase: 'coletando',
+                    contexto: {
+                        cadernoId: caderno.id,
+                        questaoId: questao.id,
+                        numero: questao.number,
+                        salvas: colecao.length,
+                        totalConhecido: caderno.total || null
+                    }
+                });
+                throw new Error('Não consegui confirmar a posição atual da questão.');
+            }
+            var total = pos.total || caderno.total;
             caderno.total = total;
-            if (!pos || pos.posicao >= total) break;
+            if (pos.posicao >= total) break;
             await pausaAleatoria();
             if (estado.status !== 'rodando') return;
             var idAnterior = questao.id;
@@ -2097,6 +2140,7 @@
                 await pausaAleatoria();
             }
         }
+        caderno.totalConfirmado = true;
         caderno.completo = true;
         salvarEstado();
         UI.renderBiblioteca();
@@ -2115,9 +2159,15 @@
      * Fases por matéria (monotônicas, sem reentrada):
      *   pasta-check → criar-novo → criando → coletando
      * =================================================================== */
+    function normalizarTituloCaderno(titulo) {
+        var texto = clean(titulo).toLocaleLowerCase('pt-BR');
+        return typeof texto.normalize === 'function' ? texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '') : texto;
+    }
+
     function acharCadernoPorTitulo(titulo) {
+        var alvo = normalizarTituloCaderno(titulo);
         return Object.keys(estado.biblioteca).map(function (k) { return estado.biblioteca[k]; })
-            .find(function (b) { return b.titulo === titulo; }) || null;
+            .find(function (b) { return normalizarTituloCaderno(b.titulo) === alvo; }) || null;
     }
 
     function urlFiltros() { return location.origin + '/questoes/filtrar?idPasta=' + (estado.config ? estado.config.folderId : ''); }
@@ -2159,12 +2209,12 @@
     }
 
     function encontrarLinkCadernoNaPasta(titulo) {
-        var alvo = titulo.toLocaleLowerCase('pt-BR');
+        var alvo = normalizarTituloCaderno(titulo);
         return Array.from(document.querySelectorAll("a[href*='/questoes/cadernos/']"))
             .filter(function (a) { return a.offsetParent !== null; })
             .find(function (a) {
                 var txt = clean(a.innerText || a.textContent);
-                return txt.toLocaleLowerCase('pt-BR') === alvo;
+                return normalizarTituloCaderno(txt) === alvo;
             }) || null;
     }
 
@@ -2208,10 +2258,10 @@
 
         /* ---- matéria com caderno registrado: coleta sequencial ---- */
         if (existente) {
-            if (existente.completo && existente.questoes && existente.questoes.length) {
+            if (existente.completo && existente.totalConfirmado === true && existente.questoes && existente.questoes.length) {
                 log('decisão: caderno já completo; avançando matéria.', {
                     tipo: 'decisao', nivel: 'ok', fase: 'coletando',
-                    contexto: { cadernoId: existente.id, titulo: existente.titulo, questoes: existente.questoes.length }
+                    contexto: { cadernoId: existente.id, titulo: existente.titulo, questoes: existente.questoes.length, totalConfirmado: true }
                 });
                 avancarMateria();
                 return;
@@ -2220,9 +2270,9 @@
                 estado.fase = 'coletando';
                 estado.cadernoAtual = existente;
                 estado.mensagem = 'Abrindo caderno ' + existente.id + '...';
-                log('decisão: caderno incompleto; abrindo a página para coleta questão a questão.', {
+                log('decisão: caderno incompleto ou com total ainda não validado; abrindo a página para coleta questão a questão.', {
                     tipo: 'decisao', fase: 'coletando',
-                    contexto: { cadernoId: existente.id, titulo: existente.titulo, coletadas: (existente.questoes || []).length, total: existente.total || null }
+                    contexto: { cadernoId: existente.id, titulo: existente.titulo, coletadas: (existente.questoes || []).length, total: existente.total || null, totalConfirmado: existente.totalConfirmado === true }
                 });
                 salvarEstado();
                 UI.setStatus(estado.mensagem);
@@ -2263,11 +2313,22 @@
                 if (link) {
                     var mId = (link.href || '').match(/cadernos\/(\d+)/);
                     if (mId) {
+                        var idCaderno = String(mId[1]);
+                        var salvo = estado.biblioteca[idCaderno];
                         log('Decisão: caderno encontrado na pasta; usando o existente.', {
                             tipo: 'decisao', nivel: 'ok', fase: 'pasta-check',
-                            contexto: { materia: materia.title, cadernoId: mId[1], origem: 'pasta' }
+                            contexto: { materia: materia.title, cadernoId: idCaderno, origem: 'pasta', preservado: !!salvo, questoesPreservadas: salvo && salvo.questoes ? salvo.questoes.length : 0 }
                         });
-                        estado.biblioteca[mId[1]] = { id: mId[1], titulo: materia.title, categoria: materia.group || 'Plano', total: 0, coletadas: 0, completo: false, questoes: [] };
+                        if (salvo) {
+                            salvo.id = idCaderno;
+                            salvo.titulo = salvo.titulo || materia.title;
+                            salvo.categoria = salvo.categoria || materia.group || 'Plano';
+                            salvo.questoes = Array.isArray(salvo.questoes) ? salvo.questoes : [];
+                            salvo.coletadas = salvo.questoes.length;
+                            salvo.completo = salvo.completo === true && salvo.questoes.length > 0;
+                        } else {
+                            estado.biblioteca[idCaderno] = { id: idCaderno, titulo: materia.title, categoria: materia.group || 'Plano', total: 0, coletadas: 0, completo: false, questoes: [] };
+                        }
                         estado.fase = 'nenhuma';
                         salvarEstado();
                         UI.renderBiblioteca();

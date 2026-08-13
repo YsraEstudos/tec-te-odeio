@@ -115,9 +115,25 @@
                 });
             }
             var pos = lerPosicao();
-            var total = caderno.total || (pos ? pos.total : colecao.length);
+            if (!pos) {
+                caderno.completo = false;
+                caderno.questoes = colecao;
+                salvarEstado();
+                log('Coleta interrompida: não foi possível confirmar a posição atual; o caderno não será marcado como completo.', {
+                    tipo: 'erro', nivel: 'erro', fase: 'coletando',
+                    contexto: {
+                        cadernoId: caderno.id,
+                        questaoId: questao.id,
+                        numero: questao.number,
+                        salvas: colecao.length,
+                        totalConhecido: caderno.total || null
+                    }
+                });
+                throw new Error('Não consegui confirmar a posição atual da questão.');
+            }
+            var total = pos.total || caderno.total;
             caderno.total = total;
-            if (!pos || pos.posicao >= total) break;
+            if (pos.posicao >= total) break;
             await pausaAleatoria();
             if (estado.status !== 'rodando') return;
             var idAnterior = questao.id;
@@ -212,6 +228,7 @@
                 await pausaAleatoria();
             }
         }
+        caderno.totalConfirmado = true;
         caderno.completo = true;
         salvarEstado();
         UI.renderBiblioteca();

@@ -7,9 +7,15 @@
      * Fases por matéria (monotônicas, sem reentrada):
      *   pasta-check → criar-novo → criando → coletando
      * =================================================================== */
+    function normalizarTituloCaderno(titulo) {
+        var texto = clean(titulo).toLocaleLowerCase('pt-BR');
+        return typeof texto.normalize === 'function' ? texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '') : texto;
+    }
+
     function acharCadernoPorTitulo(titulo) {
+        var alvo = normalizarTituloCaderno(titulo);
         return Object.keys(estado.biblioteca).map(function (k) { return estado.biblioteca[k]; })
-            .find(function (b) { return b.titulo === titulo; }) || null;
+            .find(function (b) { return normalizarTituloCaderno(b.titulo) === alvo; }) || null;
     }
 
     function urlFiltros() { return location.origin + '/questoes/filtrar?idPasta=' + (estado.config ? estado.config.folderId : ''); }
@@ -51,12 +57,12 @@
     }
 
     function encontrarLinkCadernoNaPasta(titulo) {
-        var alvo = titulo.toLocaleLowerCase('pt-BR');
+        var alvo = normalizarTituloCaderno(titulo);
         return Array.from(document.querySelectorAll("a[href*='/questoes/cadernos/']"))
             .filter(function (a) { return a.offsetParent !== null; })
             .find(function (a) {
                 var txt = clean(a.innerText || a.textContent);
-                return txt.toLocaleLowerCase('pt-BR') === alvo;
+                return normalizarTituloCaderno(txt) === alvo;
             }) || null;
     }
 
@@ -100,10 +106,10 @@
 
         /* ---- matéria com caderno registrado: coleta sequencial ---- */
         if (existente) {
-            if (existente.completo && existente.questoes && existente.questoes.length) {
+            if (existente.completo && existente.totalConfirmado === true && existente.questoes && existente.questoes.length) {
                 log('decisão: caderno já completo; avançando matéria.', {
                     tipo: 'decisao', nivel: 'ok', fase: 'coletando',
-                    contexto: { cadernoId: existente.id, titulo: existente.titulo, questoes: existente.questoes.length }
+                    contexto: { cadernoId: existente.id, titulo: existente.titulo, questoes: existente.questoes.length, totalConfirmado: true }
                 });
                 avancarMateria();
                 return;
@@ -112,9 +118,9 @@
                 estado.fase = 'coletando';
                 estado.cadernoAtual = existente;
                 estado.mensagem = 'Abrindo caderno ' + existente.id + '...';
-                log('decisão: caderno incompleto; abrindo a página para coleta questão a questão.', {
+                log('decisão: caderno incompleto ou com total ainda não validado; abrindo a página para coleta questão a questão.', {
                     tipo: 'decisao', fase: 'coletando',
-                    contexto: { cadernoId: existente.id, titulo: existente.titulo, coletadas: (existente.questoes || []).length, total: existente.total || null }
+                    contexto: { cadernoId: existente.id, titulo: existente.titulo, coletadas: (existente.questoes || []).length, total: existente.total || null, totalConfirmado: existente.totalConfirmado === true }
                 });
                 salvarEstado();
                 UI.setStatus(estado.mensagem);
@@ -155,11 +161,22 @@
                 if (link) {
                     var mId = (link.href || '').match(/cadernos\/(\d+)/);
                     if (mId) {
+                        var idCaderno = String(mId[1]);
+                        var salvo = estado.biblioteca[idCaderno];
                         log('Decisão: caderno encontrado na pasta; usando o existente.', {
                             tipo: 'decisao', nivel: 'ok', fase: 'pasta-check',
-                            contexto: { materia: materia.title, cadernoId: mId[1], origem: 'pasta' }
+                            contexto: { materia: materia.title, cadernoId: idCaderno, origem: 'pasta', preservado: !!salvo, questoesPreservadas: salvo && salvo.questoes ? salvo.questoes.length : 0 }
                         });
-                        estado.biblioteca[mId[1]] = { id: mId[1], titulo: materia.title, categoria: materia.group || 'Plano', total: 0, coletadas: 0, completo: false, questoes: [] };
+                        if (salvo) {
+                            salvo.id = idCaderno;
+                            salvo.titulo = salvo.titulo || materia.title;
+                            salvo.categoria = salvo.categoria || materia.group || 'Plano';
+                            salvo.questoes = Array.isArray(salvo.questoes) ? salvo.questoes : [];
+                            salvo.coletadas = salvo.questoes.length;
+                            salvo.completo = salvo.completo === true && salvo.questoes.length > 0;
+                        } else {
+                            estado.biblioteca[idCaderno] = { id: idCaderno, titulo: materia.title, categoria: materia.group || 'Plano', total: 0, coletadas: 0, completo: false, questoes: [] };
+                        }
                         estado.fase = 'nenhuma';
                         salvarEstado();
                         UI.renderBiblioteca();

@@ -133,8 +133,35 @@
         }, CONFIG.loadTimeout, callback);
     }
 
+    function normalizarNumeroInterface(valor) {
+        var texto = String(valor == null ? '' : valor).replace(/\s/g, '');
+        if (!/^\d[\d.,]*$/.test(texto)) return null;
+        var numero = parseInt(texto.replace(/[.,]/g, ''), 10);
+        return numero > 0 ? numero : null;
+    }
+
     function lerPosicao() {
         var cont = document.querySelector('.questao-cabecalho-informacoes-numero');
-        var m = cont ? cont.textContent.match(/Quest[aã]o\s+(\d+)\s+de\s+(\d+)/i) : null;
-        return m ? { posicao: parseInt(m[1], 10), total: parseInt(m[2], 10) } : null;
+        if (!cont) {
+            log('Posição da questão ainda não está disponível no DOM.', {
+                tipo: 'observacao', nivel: 'warn', fase: 'coletando',
+                contexto: { resultado: 'elemento-ausente' }
+            });
+            return null;
+        }
+        var texto = String(cont.textContent || '')
+            .replace(/\u00a0/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        var m = texto.match(/Quest[aã]o\s+([\d.,\s]+)\s+de\s+([\d.,\s]+)/i);
+        var posicao = m ? normalizarNumeroInterface(m[1]) : null;
+        var total = m ? normalizarNumeroInterface(m[2]) : null;
+        if (!posicao || !total) {
+            log('Posição da questão não pôde ser interpretada.', {
+                tipo: 'observacao', nivel: 'warn', fase: 'coletando',
+                contexto: { resultado: 'texto-incompativel', textoCabecalho: texto }
+            });
+            return null;
+        }
+        return { posicao: posicao, total: total };
     }
