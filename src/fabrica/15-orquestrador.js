@@ -58,12 +58,64 @@
 
     function encontrarLinkCadernoNaPasta(titulo) {
         var alvo = normalizarTituloCaderno(titulo);
-        return Array.from(document.querySelectorAll("a[href*='/questoes/cadernos/']"))
-            .filter(function (a) { return a.offsetParent !== null; })
-            .find(function (a) {
+        var links = Array.from(document.querySelectorAll("a[href*='/questoes/cadernos/']"));
+        var correspondentes = links.filter(function (a) {
                 var txt = clean(a.innerText || a.textContent);
                 return normalizarTituloCaderno(txt) === alvo;
-            }) || null;
+            });
+        return correspondentes.find(function (a) {
+            var linha = typeof a.closest === 'function' ? a.closest('.list-item-caderno') : null;
+            return (a.offsetParent !== null) || (linha && linha.offsetParent !== null);
+        }) || correspondentes[0] || null;
+    }
+
+    function clicarCadernoNaPasta(link) {
+        if (!link) return false;
+        var alvo = typeof link.closest === 'function' ? link.closest('.list-item-caderno') : (link.parentElement || link);
+        try {
+            if (typeof alvo.click === 'function') {
+                alvo.click();
+                return true;
+            }
+        } catch (e) {
+            log('Clique na linha do caderno falhou; tentando o link interno.', {
+                tipo: 'tentativa', nivel: 'warn', fase: 'pasta-check',
+                contexto: { motivo: String(e && e.message || e) }
+            });
+        }
+        try {
+            if (typeof link.click === 'function') {
+                link.click();
+                return true;
+            }
+        } catch (e2) {
+            log('Clique no link do caderno também falhou.', {
+                tipo: 'resultado', nivel: 'warn', fase: 'pasta-check',
+                contexto: { motivo: String(e2 && e2.message || e2) }
+            });
+        }
+        return false;
+    }
+
+    function abrirCadernoEncontradoNaPasta(link, idCaderno) {
+        var url = urlCaderno(idCaderno);
+        var clicado = clicarCadernoNaPasta(link);
+        log('Abertura do caderno existente solicitada.', {
+            tipo: 'resultado', nivel: clicado ? 'ok' : 'warn', fase: 'pasta-check',
+            contexto: { cadernoId: String(idCaderno), metodo: clicado ? 'linha-ou-link' : 'url-fallback' }
+        });
+        if (!clicado) {
+            irPara(url);
+            return;
+        }
+        setTimeout(function () {
+            if (location.href.split('?')[0] === url.split('?')[0]) return;
+            log('Clique do caderno não mudou a rota; usando fallback por URL.', {
+                tipo: 'tentativa', nivel: 'warn', fase: 'pasta-check',
+                contexto: { cadernoId: String(idCaderno), metodo: 'url-fallback' }
+            });
+            irPara(url);
+        }, 700);
     }
 
     function avancarMateria() {
@@ -177,10 +229,13 @@
                         } else {
                             estado.biblioteca[idCaderno] = { id: idCaderno, titulo: materia.title, categoria: materia.group || 'Plano', total: 0, coletadas: 0, completo: false, questoes: [] };
                         }
-                        estado.fase = 'nenhuma';
+                        estado.fase = 'coletando';
+                        estado.cadernoAtual = estado.biblioteca[idCaderno];
+                        estado.mensagem = 'Abrindo caderno ' + idCaderno + ' para retomar a coleta...';
                         salvarEstado();
                         UI.renderBiblioteca();
-                        processarLote();
+                        UI.setStatus(estado.mensagem);
+                        abrirCadernoEncontradoNaPasta(link, idCaderno);
                         return;
                     }
                 }
@@ -305,6 +360,7 @@
         }
         estado.status = 'rodando';
         estado.modo = 'lote';
+        estado.pausaManual = false;
         estado.erro = null;
         estado.loteInicio = Math.max(0, estado.planIndex);
         estado.loteFim = Math.min(estado.planIndex + estado.config.batchSize, estado.plano.matters.length);
@@ -319,6 +375,7 @@
 
     function parar() {
         estado.status = 'pausado';
+        estado.pausaManual = true;
         salvarEstado();
         UI.renderProgresso();
         log('Execução pausada pelo usuário.', {
@@ -339,6 +396,7 @@
         }
         estado.status = 'rodando';
         estado.modo = 'lote';
+        estado.pausaManual = false;
         estado.erro = null;
         estado.loteInicio = Math.max(0, estado.planIndex);
         estado.loteFim = Math.min(estado.planIndex + estado.config.batchSize, estado.plano.matters.length);

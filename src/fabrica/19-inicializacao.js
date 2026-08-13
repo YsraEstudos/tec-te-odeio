@@ -30,6 +30,17 @@
     }
 
     function autoResumir() {
+        if (estado.status === 'pausado' && estado.fase === 'pasta-check' && estado.pausaManual !== true) {
+            estado.status = 'rodando';
+            estado.pausaManual = false;
+            estado.erro = null;
+            salvarEstado(true);
+            UI.renderProgresso();
+            log('Auto-retomada de pausa legada acionada para destravar a verificação da pasta.', {
+                tipo: 'decisao', nivel: 'ok', fase: 'pasta-check',
+                contexto: { planIndex: estado.planIndex, motivo: 'pausa-legada-sem-marcador-manual' }
+            });
+        }
         if (estado.status !== 'rodando') {
             log('Auto-retomada não acionada porque o estado não está rodando.', {
                 tipo: 'decisao', fase: 'inicializando', contexto: { status: estado.status, fase: estado.fase }
