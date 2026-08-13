@@ -80,3 +80,16 @@ test('renderiza a árvore recolhida e escapa nomes fornecidos pelo plano', () =>
   assert.match(html, /<summary/);
   assert.doesNotMatch(html, /<details[^>]+open/);
 });
+
+test('renderiza selo de status e ações por matéria quando recebe o mapa de status', () => {
+  const model = loadModel();
+  const html = model.renderArvore({ matters: [
+    { title: 'A', group: 'G', subjectIds: ['1'], subjectPaths: ['X'] },
+    { title: 'B', group: 'G', subjectIds: ['2'], subjectPaths: ['Y'] }
+  ] }, { 0: { tipo: 'atual', rotulo: 'em execução', temCaderno: true }, 1: { tipo: 'pendente', rotulo: 'pendente', temCaderno: false } });
+  assert.match(html, /tf-tree-badge-atual">em execução</);
+  assert.match(html, /tf-tree-badge-pendente">pendente</);
+  assert.match(html, /data-acao="executar-materia" data-indice="0"/);
+  assert.match(html, /data-acao="refazer-materia" data-indice="0"/);
+  assert.doesNotMatch(html, /data-acao="refazer-materia" data-indice="1"/);
+});

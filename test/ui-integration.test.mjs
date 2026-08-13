@@ -56,7 +56,7 @@ test('modelo renderiza árvore segura, recolhida e com metadados', () => {
 test('htmlPlano hidrata o editor e o loader salva somente depois da normalização', () => {
   const htmlPlano = sectionBetween('function htmlPlano() {', 'function htmlConfig() {');
   assert.match(htmlPlano, /PLANO_UI_MODEL\.textoParaEdicao\(estado\)/);
-  assert.match(htmlPlano, /PLANO_UI_MODEL\.renderArvore\(p\)/);
+  assert.match(htmlPlano, /PLANO_UI_MODEL\.renderArvore\(p, statusMaterias\(estado\)\)/);
   assert.match(htmlPlano, /escapeHtml\(texto\)/);
   assert.match(htmlPlano, /<label class="tf-secao-titulo" for="tf-plano-texto">/);
 

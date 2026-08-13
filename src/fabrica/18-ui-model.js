@@ -111,10 +111,27 @@
         }).join('');
     }
 
-    function renderArvore(plano) {
+    function badgeStatusHtml(status) {
+        if (!status) return '';
+        return '<span class="tf-tree-badge tf-tree-badge-' + escaparHtml(status.tipo) + '">' + escaparHtml(status.rotulo) + '</span>';
+    }
+
+    function acoesMateriaHtml(status, indice) {
+        if (!status) return '';
+        var acoes = '<button type="button" class="tf-tree-acao" data-acao="executar-materia" data-indice="' + indice + '" title="Executar a partir desta matéria">▶</button>';
+        if (status.temCaderno) {
+            acoes += '<button type="button" class="tf-tree-acao" data-acao="refazer-materia" data-indice="' + indice + '" title="Refazer esta matéria (recolhe as questões)">↺</button>';
+        }
+        return acoes;
+    }
+
+    function renderArvore(plano, statusMap) {
+        var indice = 0;
         return agruparPorCategoria(plano).map(function (categoria) {
             var matters = categoria.matters.map(function (matter) {
-                var meta = '<span class="tf-tree-meta">' + codigoHtml(matter && matter.code) + '<span class="tf-tree-subject-count">' + quantidadeTexto(quantidadeAssuntos(matter), 'assunto', 'assuntos') + '</span></span>';
+                var status = statusMap ? statusMap[indice] : null;
+                var meta = '<span class="tf-tree-meta">' + codigoHtml(matter && matter.code) + '<span class="tf-tree-subject-count">' + quantidadeTexto(quantidadeAssuntos(matter), 'assunto', 'assuntos') + '</span>' + badgeStatusHtml(status) + acoesMateriaHtml(status, indice) + '</span>';
+                indice += 1;
                 return '<details class="tf-tree-node tf-tree-matter">' + resumoHtml(matter && matter.title, meta) + '<div class="tf-tree-children">' + renderAssuntos(construirAssuntos(matter)) + '</div></details>';
             }).join('');
             return '<details class="tf-tree-node tf-tree-category">' + resumoHtml(categoria.name, '<span class="tf-tree-count">' + quantidadeTexto(categoria.matters.length, 'matéria', 'matérias') + '</span>') + '<div class="tf-tree-children">' + matters + '</div></details>';

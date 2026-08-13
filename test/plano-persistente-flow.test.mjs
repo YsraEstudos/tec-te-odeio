@@ -18,7 +18,16 @@ function extrairHtmlPlano() {
   return uiSource.slice(inicio, fim);
 }
 
+function extrairStatusMaterias() {
+  const inicio = uiSource.indexOf('function statusMaterias(estado) {');
+  const fim = uiSource.indexOf('function htmlPlano() {', inicio);
+  assert.notEqual(inicio, -1, 'statusMaterias ausente');
+  assert.notEqual(fim, -1, 'limite de statusMaterias ausente');
+  return uiSource.slice(inicio, fim);
+}
+
 const htmlPlanoSource = extrairHtmlPlano();
+const statusMateriasSource = extrairStatusMaterias();
 
 function escaparHtml(valor) {
   return String(valor == null ? '' : valor).replace(/[&<>"']/g, (caractere) => ({
@@ -33,11 +42,12 @@ function criarContextoPlano(estado) {
     clean: (valor) => String(valor == null ? '' : valor).replace(/\s+/g, ' ').trim(),
     log: () => {},
     escapeHtml: escaparHtml,
+    acharCadernoPorTitulo: () => null,
     JSON,
     console
   });
   contexto.window = contexto;
-  vm.runInContext(`${modelSource}\n${planoSource}\n${htmlPlanoSource}\nthis.renderizarPlano = htmlPlano;`, contexto);
+  vm.runInContext(`${modelSource}\n${planoSource}\n${statusMateriasSource}\n${htmlPlanoSource}\nthis.renderizarPlano = htmlPlano;`, contexto);
   return contexto;
 }
 

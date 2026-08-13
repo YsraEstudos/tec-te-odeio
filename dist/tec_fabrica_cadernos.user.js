@@ -3316,10 +3316,27 @@
         }).join('');
     }
 
-    function renderArvore(plano) {
+    function badgeStatusHtml(status) {
+        if (!status) return '';
+        return '<span class="tf-tree-badge tf-tree-badge-' + escaparHtml(status.tipo) + '">' + escaparHtml(status.rotulo) + '</span>';
+    }
+
+    function acoesMateriaHtml(status, indice) {
+        if (!status) return '';
+        var acoes = '<button type="button" class="tf-tree-acao" data-acao="executar-materia" data-indice="' + indice + '" title="Executar a partir desta matéria">▶</button>';
+        if (status.temCaderno) {
+            acoes += '<button type="button" class="tf-tree-acao" data-acao="refazer-materia" data-indice="' + indice + '" title="Refazer esta matéria (recolhe as questões)">↺</button>';
+        }
+        return acoes;
+    }
+
+    function renderArvore(plano, statusMap) {
+        var indice = 0;
         return agruparPorCategoria(plano).map(function (categoria) {
             var matters = categoria.matters.map(function (matter) {
-                var meta = '<span class="tf-tree-meta">' + codigoHtml(matter && matter.code) + '<span class="tf-tree-subject-count">' + quantidadeTexto(quantidadeAssuntos(matter), 'assunto', 'assuntos') + '</span></span>';
+                var status = statusMap ? statusMap[indice] : null;
+                var meta = '<span class="tf-tree-meta">' + codigoHtml(matter && matter.code) + '<span class="tf-tree-subject-count">' + quantidadeTexto(quantidadeAssuntos(matter), 'assunto', 'assuntos') + '</span>' + badgeStatusHtml(status) + acoesMateriaHtml(status, indice) + '</span>';
+                indice += 1;
                 return '<details class="tf-tree-node tf-tree-matter">' + resumoHtml(matter && matter.title, meta) + '<div class="tf-tree-children">' + renderAssuntos(construirAssuntos(matter)) + '</div></details>';
             }).join('');
             return '<details class="tf-tree-node tf-tree-category">' + resumoHtml(categoria.name, '<span class="tf-tree-count">' + quantidadeTexto(categoria.matters.length, 'matéria', 'matérias') + '</span>') + '<div class="tf-tree-children">' + matters + '</div></details>';
@@ -3445,6 +3462,14 @@
         '#tec-fabrica .tf-tree-count, #tec-fabrica .tf-tree-meta { margin-left:auto; color:#93c5fd; font-size:10.5px; font-weight:400; text-align:right; word-break:break-word; }',
         '#tec-fabrica .tf-tree-leaf { padding:7px 9px 7px 25px; color:#cbd5e1; font-size:11.5px; line-height:1.4; border-top:1px solid #1e293b; word-break:break-word; }',
         '#tec-fabrica .tf-tree-leaf::before { content:""; display:inline-block; width:5px; height:5px; margin:0 7px 2px 0; border-radius:50%; background:#60a5fa; }',
+        '#tec-fabrica .tf-tree-badge{font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:99px;white-space:nowrap;flex:none}',
+        '#tec-fabrica .tf-tree-badge-atual{background:#1e3a8a;color:#93c5fd;border:1px solid #3b82f6}',
+        '#tec-fabrica .tf-tree-badge-concluida{background:#052e16;color:#86efac;border:1px solid #16a34a}',
+        '#tec-fabrica .tf-tree-badge-andamento{background:#78350f;color:#fde68a;border:1px solid #d97706}',
+        '#tec-fabrica .tf-tree-badge-processada{background:#1e293b;color:#94a3b8;border:1px solid #334155}',
+        '#tec-fabrica .tf-tree-badge-pendente{background:#1e293b;color:#64748b;border:1px solid #1e293b}',
+        '#tec-fabrica .tf-tree-acao{background:#1f2937;border:1px solid #334155;color:#e2e8f0;border-radius:6px;cursor:pointer;font-size:10px;line-height:1;padding:3px 5px;flex:none}',
+        '#tec-fabrica .tf-tree-acao:hover{background:#374151;border-color:#60a5fa}',
         '@keyframes tf-tree-in { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:translateY(0); } }',
         '@media (prefers-reduced-motion: reduce) { #tec-fabrica *, #tec-fabrica *::before, #tec-fabrica *::after { animation:none !important; animation-duration:.01ms !important; transition-duration:.01ms !important; } }'
     ].join('');
@@ -3504,10 +3529,28 @@
     }
 
     /* ---- aba Plano ---- */
+    function statusMaterias(estado) {
+        var mapa = {};
+        var plano = estado.plano;
+        if (!plano || !Array.isArray(plano.matters)) return mapa;
+        var ativo = estado.status === 'rodando' || estado.status === 'pausado';
+        plano.matters.forEach(function (m, i) {
+            var caderno = acharCadernoPorTitulo(m.title);
+            var tipo, rotulo;
+            if (i === estado.planIndex) { tipo = 'atual'; rotulo = ativo ? 'em execução' : 'próxima'; }
+            else if (caderno && caderno.completo === true) { tipo = 'concluida'; rotulo = 'concluída'; }
+            else if (caderno && Array.isArray(caderno.questoes) && caderno.questoes.length) { tipo = 'andamento'; rotulo = 'em andamento'; }
+            else if (i < estado.planIndex) { tipo = 'processada'; rotulo = 'processada'; }
+            else { tipo = 'pendente'; rotulo = 'pendente'; }
+            mapa[i] = { tipo: tipo, rotulo: rotulo, temCaderno: !!caderno };
+        });
+        return mapa;
+    }
+
     function htmlPlano() {
         var p = estado.plano;
         var texto = PLANO_UI_MODEL.textoParaEdicao(estado);
-        var arvore = PLANO_UI_MODEL.renderArvore(p);
+        var arvore = PLANO_UI_MODEL.renderArvore(p, statusMaterias(estado));
         var materias = p && Array.isArray(p.matters) ? p.matters : [];
         var categorias = p ? PLANO_UI_MODEL.agruparPorCategoria(p) : [];
         var assuntos = materias.reduce(function (total, materia) {
@@ -3526,7 +3569,7 @@
             '<div class="tf-linha" style="justify-content:flex-end">' +
             '  <button class="tf-btn" id="tf-carregar">Carregar plano</button>' +
             '</div>' +
-            '<div class="tf-plano-arvore">' + arvore + '</div>' +
+            '<div class="tf-plano-arvore" id="tf-plano-arvore">' + arvore + '</div>' +
             '<div id="tf-plano-aviso"></div>';
     }
 
@@ -3769,6 +3812,16 @@
             mostrarAba('log');
         });
 
+        corpo.querySelectorAll('[data-acao="executar-materia"], [data-acao="refazer-materia"]').forEach(function (b) {
+            b.addEventListener('click', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                var indice = parseInt(b.getAttribute('data-indice'), 10);
+                if (b.getAttribute('data-acao') === 'refazer-materia') refazerMateria(indice);
+                else executarMateria(indice);
+            });
+        });
+
         corpo.querySelectorAll('[data-acao]').forEach(function (b) {
             b.addEventListener('click', function () {
                 var acao = b.getAttribute('data-acao');
@@ -3832,6 +3885,41 @@
         estado.erro = null;
         salvarEstado(true);
         retomarColetaSobDemanda(caderno);
+    }
+
+    /* ---- executar/refazer matéria a partir da árvore do plano ---- */
+    function executarMateria(indice) {
+        var plano = estado.plano;
+        if (!plano || !Array.isArray(plano.matters) || !plano.matters[indice]) return;
+        if (estado.status === 'rodando') parar();
+        estado.planIndex = indice;
+        estado.fase = 'nenhuma';
+        estado.cadernoAtual = null;
+        estado.erro = null;
+        salvarEstado(true);
+        UI.renderBiblioteca();
+        UI.renderProgresso();
+        continuar();
+        atualizarArvorePlano();
+    }
+
+    function refazerMateria(indice) {
+        var plano = estado.plano;
+        if (!plano || !Array.isArray(plano.matters) || !plano.matters[indice]) return;
+        var caderno = acharCadernoPorTitulo(plano.matters[indice].title);
+        if (caderno) {
+            caderno.questoes = [];
+            caderno.coletadas = 0;
+            caderno.completo = false;
+            caderno.totalConfirmado = false;
+            caderno.total = 0;
+        }
+        executarMateria(indice);
+    }
+
+    function atualizarArvorePlano() {
+        var arvoreEl = document.getElementById('tf-plano-arvore');
+        if (arvoreEl && estado.plano) arvoreEl.innerHTML = PLANO_UI_MODEL.renderArvore(estado.plano, statusMaterias(estado));
     }
 
     /* ---- implementação dos hooks da UI ---- */
