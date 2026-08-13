@@ -671,7 +671,7 @@
 
     function estadoVazio() {
         return {
-            plano: null, config: null, status: 'parado', fase: 'nenhuma', modo: 'lote',
+            plano: null, planoTexto: '', config: null, status: 'parado', fase: 'nenhuma', modo: 'lote',
             planIndex: 0, loteInicio: 0, loteFim: 0, cadernoAtual: null,
             biblioteca: {}, impressao: { data: '', usadas: 0 }, impressaoParte: null,
             mensagem: '', erro: null, retomada: false, atualizadoEm: null
@@ -921,6 +921,7 @@
 
     if (typeof window !== 'undefined') {
         window.__TecFabricaPersistence = {
+            estadoVazio: estadoVazio,
             sanitizarParaPersistencia: sanitizarParaPersistencia,
             validarEstado: validarEstado,
             indexarEstado: indexarEstado,
@@ -2722,6 +2723,148 @@
         module.exports = __TecFabricaExport;
     }
 
+/* =====================================================================
+ * UI — modelo puro da árvore do plano
+ * =================================================================== */
+(function (root) {
+    'use strict';
+
+    function texto(value) {
+        return String(value == null ? '' : value);
+    }
+
+    function escaparHtml(value) {
+        return texto(value).replace(/[&<>"']/g, function (caractere) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[caractere];
+        });
+    }
+
+    function chevronSvg() {
+        return '<svg class="tf-tree-chevron" viewBox="0 0 10 10" width="10" height="10" aria-hidden="true" focusable="false"><path d="M3 2l4 3-4 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
+    }
+
+    function quantidadeTexto(count, singular, plural) {
+        return texto(count) + ' ' + (count === 1 ? singular : plural);
+    }
+
+    function codigoHtml(code) {
+        if (code == null || texto(code) === '') return '';
+        return '<span class="tf-tree-code">' + escaparHtml(code) + '</span>';
+    }
+
+    function metaCodigoHtml(code) {
+        var codigo = codigoHtml(code);
+        return codigo ? '<span class="tf-tree-meta">Código ' + codigo + '</span>' : '';
+    }
+
+    function resumoHtml(label, meta) {
+        return '<summary class="tf-tree-label">' + chevronSvg() + '<span class="tf-tree-label-text">' + escaparHtml(label) + '</span>' + (meta || '') + '</summary>';
+    }
+
+    function quantidadeAssuntos(matter) {
+        return Math.max(lista(matter && matter.subjectIds).length, lista(matter && matter.subjectPaths).length);
+    }
+
+    function lista(value) {
+        return Array.isArray(value) ? value : new Array();
+    }
+
+    function encontrarOuCriar(nodes, label) {
+        var i;
+        for (i = 0; i < nodes.length; i += 1) {
+            if (nodes[i].label === label) return nodes[i];
+        }
+        var node = { label: label, code: '', children: new Array() };
+        nodes.push(node);
+        return node;
+    }
+
+    function construirAssuntos(materia) {
+        var roots = new Array();
+        var paths = lista(materia && materia.subjectPaths);
+        var ids = lista(materia && materia.subjectIds);
+        var i;
+
+        for (i = 0; i < paths.length; i += 1) {
+            var partes = texto(paths[i]).split('>').map(function (parte) { return parte.trim(); }).filter(Boolean);
+            if (!partes.length) {
+                if (ids[i] != null && texto(ids[i]) !== '') roots.push({ label: 'Assunto sem caminho', code: texto(ids[i]), children: new Array() });
+                continue;
+            }
+            var nivel = roots;
+            var node = null;
+            var j;
+            for (j = 0; j < partes.length; j += 1) {
+                node = encontrarOuCriar(nivel, partes[j]);
+                nivel = node.children;
+            }
+            if (node && ids[i] != null) node.code = texto(ids[i]);
+        }
+
+        for (i = paths.length; i < ids.length; i += 1) {
+            if (ids[i] == null || texto(ids[i]) === '') continue;
+            roots.push({ label: 'Assunto sem caminho', code: texto(ids[i]), children: new Array() });
+        }
+        return roots;
+    }
+
+    function agruparPorCategoria(plano) {
+        var categorias = new Array();
+        var matters = lista(plano && plano.matters);
+        var indices = Object.create(null);
+        matters.forEach(function (matter) {
+            var name = matter && matter.group ? texto(matter.group) : 'Sem categoria';
+            var categoria = indices[name];
+            if (!categoria) {
+                categoria = { name: name, matters: [], subjectCount: 0 };
+                indices[name] = categoria;
+                categorias.push(categoria);
+            }
+            categoria.matters.push(matter);
+            categoria.subjectCount += lista(matter && matter.subjectIds).length;
+        });
+        return categorias;
+    }
+
+    function renderAssuntos(nodes) {
+        return nodes.map(function (node) {
+            var label = escaparHtml(node.label);
+            if (node.children.length) {
+                return '<details class="tf-tree-node tf-tree-subject">' + resumoHtml(node.label, metaCodigoHtml(node.code)) + '<div class="tf-tree-children">' + renderAssuntos(node.children) + '</div></details>';
+            }
+            return '<div class="tf-tree-leaf" data-code="' + escaparHtml(node.code) + '"><span class="tf-tree-label-text">' + label + '</span>' + metaCodigoHtml(node.code) + '</div>';
+        }).join('');
+    }
+
+    function renderArvore(plano) {
+        return agruparPorCategoria(plano).map(function (categoria) {
+            var matters = categoria.matters.map(function (matter) {
+                var meta = '<span class="tf-tree-meta">' + codigoHtml(matter && matter.code) + '<span class="tf-tree-subject-count">' + quantidadeTexto(quantidadeAssuntos(matter), 'assunto', 'assuntos') + '</span></span>';
+                return '<details class="tf-tree-node tf-tree-matter">' + resumoHtml(matter && matter.title, meta) + '<div class="tf-tree-children">' + renderAssuntos(construirAssuntos(matter)) + '</div></details>';
+            }).join('');
+            return '<details class="tf-tree-node tf-tree-category">' + resumoHtml(categoria.name, '<span class="tf-tree-count">' + quantidadeTexto(categoria.matters.length, 'matéria', 'matérias') + '</span>') + '<div class="tf-tree-children">' + matters + '</div></details>';
+        }).join('');
+    }
+
+    var PLANO_UI_MODEL = {
+        textoParaEdicao: function (estado) {
+            if (estado && typeof estado.planoTexto === 'string' && estado.planoTexto.trim()) return estado.planoTexto;
+            return estado && estado.plano ? JSON.stringify(estado.plano, null, 2) : '';
+        },
+        carregarPlano: function (textoColado, normalizar, estado) {
+            var plano = normalizar(textoColado);
+            estado.planoTexto = String(textoColado == null ? '' : textoColado);
+            estado.plano = plano;
+            return plano;
+        },
+        agruparPorCategoria: agruparPorCategoria,
+        construirAssuntos: construirAssuntos,
+        renderArvore: renderArvore
+    };
+
+    if (root) root.PLANO_UI_MODEL = PLANO_UI_MODEL;
+    if (typeof module !== 'undefined' && module.exports) module.exports = PLANO_UI_MODEL;
+}(typeof window !== 'undefined' ? window : this));
     /* =====================================================================
      * UI — painel "Fábrica de Cadernos" (dark, consistente com o projeto)
      * =================================================================== */
@@ -2738,9 +2881,9 @@
     var abaAtiva = 'plano';
 
     var UI_CSS = [
-        '#tec-fabrica{position:fixed;top:70px;right:14px;z-index:999999;width:400px;max-height:88vh;display:flex;flex-direction:column;',
+        '#tec-fabrica{position:fixed;top:70px;right:10px;z-index:999999;width:min(400px,calc(100vw - 20px));max-height:min(88vh,720px);display:flex;flex-direction:column;',
         'background:#0b1120;color:#e5e7eb;border:1px solid #1e293b;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.55);',
-        'font:13px/1.5 system-ui,sans-serif;user-select:none;overflow:hidden}',
+        'font:13px/1.5 system-ui,sans-serif;font-family:"Fira Sans","Segoe UI",sans-serif;user-select:none;overflow:hidden}',
         '#tec-fabrica *{box-sizing:border-box}',
         '#tec-fabrica .tf-header{display:flex;align-items:center;gap:8px;padding:11px 14px;background:#111827;border-bottom:1px solid #1f2937}',
         '#tec-fabrica .tf-logo{width:9px;height:9px;border-radius:50%;background:#22c55e;flex:none}',
@@ -2756,7 +2899,7 @@
         '#tec-fabrica .tf-aba{flex:1;text-align:center;padding:6px 4px;border:none;background:none;color:#94a3b8;cursor:pointer;font-size:11.5px;border-radius:7px 7px 0 0;border-bottom:2px solid transparent}',
         '#tec-fabrica .tf-aba:hover{color:#e2e8f0}',
         '#tec-fabrica .tf-aba.ativa{color:#60a5fa;border-bottom-color:#3b82f6;background:#111827}',
-        '#tec-fabrica .tf-corpo{flex:1;overflow-y:auto;padding:12px}',
+        '#tec-fabrica .tf-corpo{flex:1;overflow-y:auto;overflow-x:hidden;padding:12px}',
         '#tec-fabrica .tf-secao-titulo{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:#64748b;margin:10px 0 6px}',
         '#tec-fabrica .tf-secao-titulo:first-child{margin-top:0}',
         '#tec-fabrica textarea{width:100%;min-height:110px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:8px;padding:8px;font:12px/1.45 ui-monospace,Consolas,monospace;resize:vertical}',
@@ -2794,7 +2937,23 @@
         '#tec-fabrica .tf-log .err{color:#f87171}',
         '#tec-fabrica ::-webkit-scrollbar{width:8px}',
         '#tec-fabrica ::-webkit-scrollbar-thumb{background:#334155;border-radius:99px}',
-        '#tec-fabrica .tf-vazio{color:#64748b;font-size:11.5px;text-align:center;padding:14px 0}'
+        '#tec-fabrica .tf-vazio{color:#64748b;font-size:11.5px;text-align:center;padding:14px 0}',
+        '#tec-fabrica .tf-plano-arvore { display:flex; flex-direction:column; gap:6px; margin-top:10px; overflow-x:hidden; }',
+        '#tec-fabrica .tf-tree-node { border:1px solid #1e293b; border-radius:9px; background:#0f172a; overflow:hidden; }',
+        '#tec-fabrica .tf-tree-node > summary { display:flex; align-items:center; gap:7px; min-height:38px; padding:8px 9px; color:#e2e8f0; cursor:pointer; list-style:none; user-select:none; word-break:break-word; }',
+        '#tec-fabrica .tf-tree-node > summary::-webkit-details-marker { display:none; }',
+        '#tec-fabrica .tf-tree-chevron { width:10px; height:10px; flex:none; color:#60a5fa; transition:transform 160ms ease; }',
+        '#tec-fabrica .tf-tree-node[open] > summary .tf-tree-chevron { transform:rotate(90deg); }',
+        '#tec-fabrica .tf-tree-node > summary:focus-visible { outline:2px solid #60a5fa; outline-offset:-2px; }',
+        '#tec-fabrica .tf-tree-node[open] > summary { background:#172554; }',
+        '#tec-fabrica .tf-tree-children { padding:0 7px 7px 16px; animation:tf-tree-in 220ms ease-out both; }',
+        '#tec-fabrica .tf-tree-node > .tf-tree-node { margin:0 7px 7px 16px; }',
+        '#tec-fabrica .tf-tree-label { flex:1; min-width:0; word-break:break-word; }',
+        '#tec-fabrica .tf-tree-count, #tec-fabrica .tf-tree-meta { margin-left:auto; color:#93c5fd; font-size:10.5px; font-weight:400; text-align:right; word-break:break-word; }',
+        '#tec-fabrica .tf-tree-leaf { padding:7px 9px 7px 25px; color:#cbd5e1; font-size:11.5px; line-height:1.4; border-top:1px solid #1e293b; word-break:break-word; }',
+        '#tec-fabrica .tf-tree-leaf::before { content:""; display:inline-block; width:5px; height:5px; margin:0 7px 2px 0; border-radius:50%; background:#60a5fa; }',
+        '@keyframes tf-tree-in { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:translateY(0); } }',
+        '@media (prefers-reduced-motion: reduce) { #tec-fabrica *, #tec-fabrica *::before, #tec-fabrica *::after { animation-duration:.01ms !important; transition-duration:.01ms !important; } }'
     ].join('');
 
     function criarUI() {
@@ -2850,13 +3009,17 @@
     /* ---- aba Plano ---- */
     function htmlPlano() {
         var p = estado.plano;
+        var texto = PLANO_UI_MODEL.textoParaEdicao(estado);
+        var arvore = PLANO_UI_MODEL.renderArvore(p);
+        if (!p) arvore = '<div class="tf-vazio">Carregue um plano para visualizar a árvore.</div>';
         var resumo = p ? '<div class="tf-resumo"><b>' + p.matters.length + '</b> matérias · ' + p.banks.length + ' bancas · ' + p.years.length + ' anos · ' +
             (p.removeCancelled ? 'sem anuladas' : '') + (p.removeOutdated ? (p.removeCancelled ? ' e ' : '') + 'sem desatualizadas' : '') + '</div>' : '';
-        return '<div class="tf-secao-titulo">Plano de matérias (JSON)</div>' +
-            '<textarea id="tf-plano-texto" placeholder=\'Cole aqui o conteúdo do mapeamento_de_materias.json\n\nEx: {"materias": [{"titulo": "Classes de palavras", "materias_tecconcursos": [{"codigo": 12519, "materia": "Língua Portuguesa (Português) > Morfologia > Classes de Palavras"}]}]}\'>' + (p ? '' : '') + '</textarea>' +
+        return '<label class="tf-secao-titulo" for="tf-plano-texto">Plano de matérias (JSON)</label>' +
+            '<textarea id="tf-plano-texto" placeholder=\'Cole aqui o conteúdo do mapeamento_de_materias.json\n\nEx: {"materias": [{"titulo": "Classes de palavras", "materias_tecconcursos": [{"codigo": 12519, "materia": "Língua Portuguesa (Português) > Morfologia > Classes de Palavras"}]}]}\'>' + escapeHtml(texto) + '</textarea>' +
             '<div class="tf-linha" style="justify-content:flex-end">' +
             '  <button class="tf-btn" id="tf-carregar">Carregar plano</button>' +
             '</div>' + resumo +
+            '<div class="tf-plano-arvore">' + arvore + '</div>' +
             '<div id="tf-plano-aviso"></div>';
     }
 
@@ -2977,8 +3140,7 @@
             var texto = corpo.querySelector('#tf-plano-texto').value;
             var aviso = corpo.querySelector('#tf-plano-aviso');
             try {
-                var plano = normalizarPlano(texto);
-                estado.plano = plano;
+                var plano = PLANO_UI_MODEL.carregarPlano(texto, normalizarPlano, estado);
                 if (!estado.config) {
                     estado.config = {
                         folderId: pastaIdDaUrl() || '',
@@ -2993,8 +3155,10 @@
                         years: CONFIG.years.slice()
                     };
                 }
-                salvarEstado();
-                aviso.innerHTML = '<div class="tf-resumo" style="border-color:#166534;background:#052e16;color:#bbf7d0">Plano carregado: <b>' + plano.matters.length + '</b> matérias</div>';
+                salvarEstado(true);
+                mostrarAba('plano');
+                var avisoAtual = painelEl.querySelector('#tf-plano-aviso');
+                avisoAtual.innerHTML = '<div class="tf-resumo" style="border-color:#166534;background:#052e16;color:#bbf7d0">Plano carregado: <b>' + plano.matters.length + '</b> matérias</div>';
                 log('Plano carregado: ' + plano.matters.length + ' matérias, ' + plano.banks.length + ' bancas, ' + plano.years.length + ' anos.');
             } catch (e) {
                 aviso.innerHTML = '<div class="tf-status-msg erro"><b>Erro ao carregar o plano:</b> ' + escapeHtml(e.message) + '</div>';
