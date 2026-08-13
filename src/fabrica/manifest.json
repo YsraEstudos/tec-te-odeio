@@ -140,6 +140,12 @@
       "lines": "1790-2237"
     },
     {
+      "id": "18-model",
+      "file": "18-ui-model.js",
+      "section": "UI — modelo puro da árvore do plano",
+      "lines": ""
+    },
+    {
       "id": "18",
       "file": "18-ui.js",
       "section": "UI — painel \"Fábrica de Cadernos\" (dark, consistente com o projeto)",
