@@ -16,8 +16,6 @@
         years: [2023, 2020, 2022, 2018, 2025, 2021, 2017, 2024, 2019, 2026, 2016],
         removeCancelled: true,
         removeOutdated: true,
-        usarCliqueGabarito: true,
-        impressaoLimiteDia: 1000,
-        usarImpressao: true
+        usarCliqueGabarito: true
     };
 

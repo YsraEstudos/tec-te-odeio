@@ -116,12 +116,6 @@
       "lines": "1074-1102"
     },
     {
-      "id": "13",
-      "file": "13-impressao.js",
-      "section": "ENGINE — IMPRESSÃO (réplica do projeto: partes de até 200 questões,",
-      "lines": "1103-1347"
-    },
-    {
       "id": "14",
       "file": "14-coleta.js",
       "section": "ENGINE — COLETA (copia cada questão com gabarito)",

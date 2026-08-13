@@ -3,7 +3,6 @@
      * =================================================================== */
     function paginaAtual() {
         var path = location.pathname || '';
-        if (/\/questoes\/cadernos\/\d+\/imprimir/i.test(path)) return 'impressao';
         if (/\/questoes\/cadernos\/\d+/i.test(path)) return 'caderno';
         if (/\/questoes\/filtrar/i.test(path)) return 'filtros';
         if (/\/questoes\/pastas\/\d+/i.test(path)) return 'pasta';

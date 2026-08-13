@@ -42,11 +42,9 @@ function loadExport({ fetch } = {}) {
     },
     setTimeout, clearTimeout, console,
     // Definições de outros fragmentos referenciadas na montagem do objeto de
-    // exportação (no bundle real vêm de 03-dom-helpers.js e 13-impressao.js;
+    // exportação (no bundle real vêm de 03-dom-helpers.js;
     // aqui só precisam existir como valor — nunca são chamadas pelos puros).
     clean: (v) => String(v == null ? '' : v).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim(),
-    extrairQuestoesImpressas: () => [],
-    parseGabaritoBloco: () => null,
   };
   if (fetch) sandbox.fetch = fetch;
   vm.runInNewContext(source, sandbox, { filename: '17-exportacao.js' });
@@ -289,7 +287,7 @@ test('decodeBase64, columnName, xmlEscape e surface de exports', () => {
     'imageFormat', 'decodeBase64', 'imageSourcesFromHtml', 'questionImageSources',
     'columnName', 'xmlEscape', 'escapeHtml', 'jsJson', 'safeFilename', 'baixarBlob',
     'baixarHtmlCaderno', 'baixarExcelCaderno', 'baixarJsonCaderno', 'entradaBiblioteca',
-    'exportarCategoria', 'cadernosPorCategoria', 'extrairQuestoesImpressas', 'parseGabaritoBloco',
+    'exportarCategoria', 'cadernosPorCategoria',
   ]) {
     assert.equal(typeof exp[key], 'function', 'export ausente: ' + key);
   }

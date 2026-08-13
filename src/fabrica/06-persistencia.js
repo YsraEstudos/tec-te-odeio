@@ -80,7 +80,7 @@
         return {
             plano: null, planoTexto: '', config: null, status: 'parado', fase: 'nenhuma', modo: 'lote',
             planIndex: 0, loteInicio: 0, loteFim: 0, cadernoAtual: null,
-            biblioteca: {}, logs: [], impressao: { data: '', usadas: 0 }, impressaoParte: null,
+            biblioteca: {}, logs: [],
             mensagem: '', erro: null, retomada: false, atualizadoEm: null
         };
     }

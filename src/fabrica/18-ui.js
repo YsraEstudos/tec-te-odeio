@@ -190,10 +190,6 @@
             '<div class="tf-linha"><input type="checkbox" id="tf-anuladas" ' + ((c.removeCancelled !== false) ? 'checked' : '') + '><label>Remover questões anuladas</label></div>' +
             '<div class="tf-linha"><input type="checkbox" id="tf-desatualizadas" ' + ((c.removeOutdated !== false) ? 'checked' : '') + '><label>Remover questões desatualizadas</label></div>' +
             '<div class="tf-linha"><input type="checkbox" id="tf-clique-gabarito" ' + ((c.usarCliqueGabarito !== false) ? 'checked' : '') + '><label>Clique para obter gabarito (necessário em questões novas)</label></div>' +
-            '<div class="tf-secao-titulo">Impressão (saldo diário do site)</div>' +
-            '<div class="tf-linha"><input type="checkbox" id="tf-usar-impressao" ' + ((c.usarImpressao !== false) ? 'checked' : '') + '><label>Usar impressão antes do clique</label></div>' +
-            '<div class="tf-linha"><label style="width:130px">Teto por dia (questões)</label><input type="number" id="tf-impressao-limite" min="1" value="' + (c.impressaoLimiteDia || CONFIG.impressaoLimiteDia) + '"></div>' +
-            '<div class="tf-linha"><label style="width:130px">Usadas hoje</label><span id="tf-impressao-usadas" style="color:#94a3b8;font-size:11.5px">' + (estado.impressao ? estado.impressao.usadas || 0 : 0) + '</span></div>' +
             '<div class="tf-secao-titulo">Bancas (uma por linha)</div>' +
             '<textarea id="tf-bancas" style="min-height:80px">' + (c.banks || CONFIG.banks).join('\n') + '</textarea>' +
             '<div class="tf-secao-titulo">Anos (separados por vírgula)</div>' +
@@ -367,8 +363,6 @@
                 cfg.removeCancelled = corpo.querySelector('#tf-anuladas').checked;
                 cfg.removeOutdated = corpo.querySelector('#tf-desatualizadas').checked;
                 cfg.usarCliqueGabarito = corpo.querySelector('#tf-clique-gabarito').checked;
-                cfg.usarImpressao = corpo.querySelector('#tf-usar-impressao').checked;
-                cfg.impressaoLimiteDia = Math.max(1, parseInt(corpo.querySelector('#tf-impressao-limite').value, 10) || CONFIG.impressaoLimiteDia);
                 cfg.banks = corpo.querySelector('#tf-bancas').value.split('\n').map(clean).filter(Boolean);
                 cfg.years = corpo.querySelector('#tf-anos').value.split(',').map(function (y) { return parseInt(y, 10); }).filter(function (y) { return y >= 1900 && y <= 2100; });
                 if (cfg.banks.length < 1) throw new Error('Informe ao menos uma banca.');

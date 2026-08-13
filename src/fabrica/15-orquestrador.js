@@ -84,63 +84,24 @@
         var materia = plano.matters[estado.planIndex];
         var existente = acharCadernoPorTitulo(materia.title);
 
-        /* ---- matéria com caderno registrado: impressão → clique ---- */
+        /* ---- matéria com caderno registrado: coleta sequencial ---- */
         if (existente) {
             if (existente.completo && existente.questoes && existente.questoes.length) {
+                log('decisão: caderno já completo; avançando matéria.', {
+                    tipo: 'decisao', nivel: 'ok', fase: 'coletando',
+                    contexto: { cadernoId: existente.id, titulo: existente.titulo, questoes: existente.questoes.length }
+                });
                 avancarMateria();
                 return;
             }
-            // retomada da página de saída da impressão
-            if (estado.fase === 'impr-saida') {
-                if (paginaAtual() === 'impressao') {
-                    try {
-                        await processarSaidaImpressao(existente);
-                    } catch (e) {
-                        log('Falha ao ler a saída da impressão: ' + (e && e.message || e) + '. Seguindo com captura por clique.');
-                        estado.fase = 'coletando';
-                        salvarEstado();
-                    }
-                    processarLote();
-                    return;
-                }
-                estado.fase = 'impr-caderno';
-                salvarEstado();
-                irPara(urlCaderno(existente.id));
-                return;
-            }
-            // decisão inicial: tenta impressão antes do clique (config.usarImpressao)
-            if (estado.fase !== 'coletando' && estado.fase !== 'impr-caderno') {
-                var faltaImpressao = (existente.total || 0) - (existente.questoes || []).length;
-                if ((!estado.config || estado.config.usarImpressao !== false) && faltaImpressao > 0 && saldoImpressaoLocal() > 0) {
-                    estado.fase = 'impr-caderno';
-                    estado.mensagem = 'Impressão disponível. Preparando partes do caderno "' + existente.titulo + '".';
-                    salvarEstado();
-                    UI.setStatus(estado.mensagem);
-                    processarLote();
-                    return;
-                }
-                estado.fase = 'coletando';
-            }
-            // fase impr-caderno: página do caderno → submete a próxima parte
-            if (estado.fase === 'impr-caderno') {
-                if (paginaAtual() !== 'caderno' || cadernoIdDaUrl() !== existente.id) {
-                    irPara(urlCaderno(existente.id));
-                    return;
-                }
-                try {
-                    await submeterParteImpressao(existente);
-                    return; // navegou → auto-resume em 'impr-saida'
-                } catch (e) {
-                    log('Impressão indisponível (' + (e && e.message || e) + '). Seguindo com captura por clique.');
-                    estado.fase = 'coletando';
-                    salvarEstado();
-                }
-            }
-            // captura por clique (começa da primeira posição não capturada)
             if (paginaAtual() !== 'caderno' || cadernoIdDaUrl() !== existente.id) {
                 estado.fase = 'coletando';
                 estado.cadernoAtual = existente;
                 estado.mensagem = 'Abrindo caderno ' + existente.id + '...';
+                log('decisão: caderno incompleto; abrindo a página para coleta questão a questão.', {
+                    tipo: 'decisao', fase: 'coletando',
+                    contexto: { cadernoId: existente.id, titulo: existente.titulo, coletadas: (existente.questoes || []).length, total: existente.total || null }
+                });
                 salvarEstado();
                 UI.setStatus(estado.mensagem);
                 irPara(urlCaderno(existente.id)); // navega → próximo boot retoma

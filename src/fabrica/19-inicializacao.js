@@ -6,8 +6,6 @@
     log('SCRIPT_VERSION=' + SCRIPT_VERSION);
     // instala o hook de interceptação o quanto antes (questões carregadas via XHR)
     GabaritoInterceptor.instalar();
-    // página de saída da impressão: bloqueia o print nativo automático do site
-    bloquearPrintAutomatico();
 
     function iniciarUI() {
         criarUI();

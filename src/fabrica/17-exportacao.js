@@ -574,9 +574,7 @@
         baixarJsonCaderno: baixarJsonCaderno,
         entradaBiblioteca: entradaBiblioteca,
         exportarCategoria: exportarCategoria,
-        cadernosPorCategoria: cadernosPorCategoria,
-        extrairQuestoesImpressas: extrairQuestoesImpressas,
-        parseGabaritoBloco: parseGabaritoBloco
+        cadernosPorCategoria: cadernosPorCategoria
     };
     // Exposição testável: no navegador (bundle) via window; em Node via
     // module.exports (require direto do fragmento). Dentro do bundle o
