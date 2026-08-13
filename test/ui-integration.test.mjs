@@ -83,5 +83,6 @@ test('UI_CSS contém os contratos visuais dentro do bloco efetivamente aplicado'
   assert.match(css, /#tec-fabrica \.tf-corpo\{[^}]*overflow-x:hidden/);
   assert.match(css, /\.tf-tree-node > summary:focus-visible/);
   assert.match(css, /@media \(prefers-reduced-motion:\s*reduce\)/);
+  assert.match(css, /animation:none !important/);
   assert.match(css, /\.tf-tree-chevron/);
 });

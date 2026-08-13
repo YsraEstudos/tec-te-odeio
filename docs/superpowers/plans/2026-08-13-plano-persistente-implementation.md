@@ -187,7 +187,7 @@ Expected: todos os testes PASS, incluindo os casos existentes de sanitização, 
 - [ ] **Step 5: Commitar a persistência**
 
 ```powershell
-git add -- src/fabrica/05-estado.js src/fabrica/06-persistencia.js test/persistence.test.mjs
+git add -- src/fabrica/06-persistencia.js test/persistence.test.mjs
 git commit -m "fix: persiste texto original do plano"
 ```
 
@@ -196,6 +196,7 @@ git commit -m "fix: persiste texto original do plano"
 **Files:**
 - Modify: `src/fabrica/18-ui.js` — texto persistido, árvore, checkpoint crítico e CSS responsivo
 - Create: `test/ui-integration.test.mjs` — contratos estáticos de integração do fragmento
+- Create: `test/plano-persistente-flow.test.mjs` — ciclo comportamental de normalização, persistência e re-render em VM
 
 **Interfaces:**
 - `htmlPlano()` chama `PLANO_UI_MODEL.textoParaEdicao(estado)` e `PLANO_UI_MODEL.renderArvore(estado.plano)`.
@@ -287,6 +288,8 @@ Run: `node --test test/ui-integration.test.mjs`
 
 Expected: todos os testes PASS, confirmando persistência no re-render, checkpoint imediato, largura responsiva e suporte a movimento reduzido.
 
+Rodar também `node --test test/plano-persistente-flow.test.mjs` para validar o fluxo com o normalizador e modelo reais: primeiro plano válido, restauração do estado, segundo plano válido e plano inválido sem apagar o estado nem o texto do último plano válido.
+
 - [ ] **Step 6: Commitar a integração visual e funcional**
 
 ```powershell
@@ -337,8 +340,10 @@ No ambiente autenticado do Tec Concursos, instalar/recarregar o userscript `dist
 - [ ] **Step 6: Commitar o artefato final após evidência**
 
 ```powershell
-git add -- dist/tec_fabrica_cadernos.user.js src/fabrica test
+git add -- dist/tec_fabrica_cadernos.user.js
 git commit -m "chore: gera userscript com plano persistente"
 ```
+
+Não incluir arquivos de `.superpowers/sdd` neste commit.
 
 Só marcar a implementação como concluída se os comandos de build, sintaxe, suíte completa e `git diff --check` tiverem saída bem-sucedida; se a verificação manual não estiver disponível, relatar essa limitação separadamente.
