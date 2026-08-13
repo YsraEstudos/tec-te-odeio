@@ -26,6 +26,8 @@
         '@keyframes tf-pulse{0%,100%{opacity:1}50%{opacity:.35}}',
         '#tec-fabrica .tf-titulo{font-weight:700;font-size:13px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
         '#tec-fabrica .tf-status-txt{font-size:11px;color:#94a3b8;white-space:nowrap}',
+        '#tec-fabrica .tf-quick{background:#1f2937;border:1px solid #334155;color:#e2e8f0;border-radius:7px;cursor:pointer;font-size:12px;line-height:1;padding:5px 7px;min-width:28px}',
+        '#tec-fabrica .tf-quick:hover{background:#374151;border-color:#475569}',
         '#tec-fabrica .tf-collapse{background:none;border:none;color:#64748b;cursor:pointer;font-size:14px;padding:0 2px}',
         '#tec-fabrica .tf-collapse:hover{color:#e2e8f0}',
         '#tec-fabrica .tf-abas{display:flex;gap:2px;padding:6px 8px 0;background:#0f172a;border-bottom:1px solid #1f2937}',
@@ -112,6 +114,7 @@
             '  <span class="tf-logo" id="tf-logo"></span>' +
             '  <span class="tf-titulo">Fábrica de Cadernos v' + SCRIPT_VERSION + '</span>' +
             '  <span class="tf-status-txt" id="tf-status-txt">parado</span>' +
+            '  <button class="tf-quick" id="tf-quick-toggle" type="button" title="Pausar ou continuar">⏯</button>' +
             '  <button class="tf-collapse" id="tf-collapse" title="Recolher">—</button>' +
             '</div>' +
             '<div class="tf-abas">' +
@@ -131,6 +134,9 @@
             var corpo = painelEl.querySelector('#tf-corpo');
             corpo.style.display = corpo.style.display === 'none' ? '' : 'none';
             painelEl.querySelector('#tf-collapse').textContent = corpo.style.display === 'none' ? '+' : '—';
+        });
+        painelEl.querySelector('#tf-quick-toggle').addEventListener('click', function () {
+            estado.status === 'rodando' ? parar() : continuar();
         });
 
         mostrarAba('plano');
@@ -443,14 +449,14 @@
             estado.fase = 'coletando';
             estado.cadernoAtual = caderno;
             estado.mensagem = 'Abrindo caderno ' + caderno.id + '...';
-            salvarEstado();
+            salvarEstado(true);
             UI.setStatus(estado.mensagem);
             irPara(location.origin + '/questoes/cadernos/' + caderno.id); // navega → boot retoma
             return;
         }
         estado.cadernoAtual = caderno;
         estado.fase = 'coletando';
-        salvarEstado();
+        salvarEstado(true);
         UI.renderProgresso();
         try {
             await coletarCaderno(caderno);
@@ -477,7 +483,7 @@
         estado.modo = 'sob-demanda';
         estado.retomada = false;
         estado.erro = null;
-        salvarEstado();
+        salvarEstado(true);
         retomarColetaSobDemanda(caderno);
     }
 
@@ -497,6 +503,13 @@
         var logo = painelEl.querySelector('#tf-logo');
         if (logo) {
             logo.className = 'tf-logo' + (estado.status === 'rodando' ? ' rodando' : (estado.status === 'erro' ? ' erro' : (estado.status === 'completo' ? ' completo' : '')));
+        }
+        var quick = painelEl.querySelector('#tf-quick-toggle');
+        if (quick) {
+            var rodando = estado.status === 'rodando';
+            quick.textContent = rodando ? '⏸' : '▶';
+            quick.title = rodando ? 'Pausar execução' : 'Continuar execução';
+            quick.setAttribute('aria-label', quick.title);
         }
         if (abaAtiva === 'exec') mostrarAba('exec');
     };

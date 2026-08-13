@@ -1,6 +1,18 @@
     /* =====================================================================
      * INICIALIZAÇÃO
      * =================================================================== */
+    var autoResumeTimer = null;
+
+    function cancelarAutoResumir() {
+        if (autoResumeTimer === null) return;
+        clearTimeout(autoResumeTimer);
+        autoResumeTimer = null;
+        log('Auto-retomada pendente cancelada.', {
+            tipo: 'decisao', nivel: 'info', fase: estado.fase || 'nenhuma',
+            contexto: { motivo: 'pausa-ou-nova-acao-do-usuario' }
+        });
+    }
+
     // linha distintiva de inicialização: permite conferir no Console qual
     // versão do script está em execução (combina com o título da UI).
     log('SCRIPT_VERSION=' + SCRIPT_VERSION);
@@ -50,7 +62,16 @@
         log('Auto-retomada agendada após o boot.', {
             tipo: 'decisao', fase: 'inicializando', contexto: { fase: estado.fase, modo: estado.modo, cadernoId: estado.cadernoAtual ? estado.cadernoAtual.id : null }
         });
-        setTimeout(function () {
+        cancelarAutoResumir();
+        autoResumeTimer = setTimeout(function () {
+            autoResumeTimer = null;
+            if (estado.status !== 'rodando') {
+                log('Auto-retomada ignorada porque a execução foi pausada antes do timer.', {
+                    tipo: 'decisao', nivel: 'info', fase: estado.fase || 'nenhuma',
+                    contexto: { status: estado.status }
+                });
+                return;
+            }
             log('Auto-retomada executando a fase persistida.', {
                 tipo: 'tentativa', fase: estado.fase || 'nenhuma', contexto: { modo: estado.modo, cadernoId: estado.cadernoAtual ? estado.cadernoAtual.id : null }
             });

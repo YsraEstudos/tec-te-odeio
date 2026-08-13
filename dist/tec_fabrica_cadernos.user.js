@@ -2174,6 +2174,41 @@
     function urlPasta() { return location.origin + '/questoes/pastas/' + (estado.config ? estado.config.folderId : ''); }
     function urlCaderno(id) { return location.origin + '/questoes/cadernos/' + id; }
 
+    function registrarTransicaoPastaCaderno(idCaderno) {
+        var agora = Date.now();
+        var chave = String(estado.planIndex) + ':' + String(idCaderno || 'desconhecido');
+        var ciclo = estado.transicaoPastaCaderno;
+        if (!ciclo || ciclo.chave !== chave || agora - Number(ciclo.inicio || 0) > 60000) {
+            ciclo = { chave: chave, inicio: agora, tentativas: 1 };
+        } else {
+            ciclo.tentativas = Number(ciclo.tentativas || 0) + 1;
+        }
+        estado.transicaoPastaCaderno = ciclo;
+        if (ciclo.tentativas >= 3) {
+            estado.status = 'erro';
+            estado.pausaManual = false;
+            estado.fase = 'nenhuma';
+            estado.erro = 'Loop de navegação detectado entre a pasta e o caderno ' + String(idCaderno || '') + '.';
+            estado.mensagem = estado.erro + ' A execução foi interrompida para preservar o estado.';
+            salvarEstado(true);
+            UI.setStatus(estado.mensagem);
+            UI.renderProgresso();
+            log('Loop de navegação detectado; execução interrompida.', {
+                tipo: 'erro', nivel: 'erro', fase: 'pasta-check',
+                contexto: { cadernoId: String(idCaderno || ''), planIndex: estado.planIndex, tentativas: ciclo.tentativas }
+            });
+            return false;
+        }
+        salvarEstado(true);
+        return true;
+    }
+
+    function limparTransicaoPastaCaderno() {
+        if (!estado.transicaoPastaCaderno) return;
+        estado.transicaoPastaCaderno = null;
+        salvarEstado(true);
+    }
+
     function terminarCompleto() {
         estado.status = 'parado';
         estado.fase = 'nenhuma';
@@ -2251,6 +2286,7 @@
 
     function abrirCadernoEncontradoNaPasta(link, idCaderno) {
         var url = urlCaderno(idCaderno);
+        if (!registrarTransicaoPastaCaderno(idCaderno)) return;
         var clicado = clicarCadernoNaPasta(link);
         log('Abertura do caderno existente solicitada.', {
             tipo: 'resultado', nivel: clicado ? 'ok' : 'warn', fase: 'pasta-check',
@@ -2302,7 +2338,9 @@
         if (estado.planIndex >= plano.matters.length) { terminarCompleto(); return; }
 
         var materia = plano.matters[estado.planIndex];
-        var existente = acharCadernoPorTitulo(materia.title);
+        var idCadernoRota = paginaAtual() === 'caderno' ? cadernoIdDaUrl() : '';
+        var existente = idCadernoRota ? estado.biblioteca[idCadernoRota] : null;
+        if (!existente) existente = acharCadernoPorTitulo(materia.title);
         log('Avaliando próxima matéria do plano.', {
             tipo: 'observacao', fase: estado.fase || 'nenhuma',
             contexto: { planIndex: estado.planIndex, materias: plano.matters.length, materia: materia.title, cadernoRegistrado: !!existente, pagina: paginaAtual() }
@@ -2333,7 +2371,8 @@
             }
             estado.cadernoAtual = existente;
             estado.fase = 'coletando';
-            salvarEstado();
+            limparTransicaoPastaCaderno();
+            salvarEstado(true);
             UI.renderProgresso();
             try {
                 await coletarCaderno(existente); // SPA: sem navegação completa
@@ -2358,6 +2397,7 @@
             case 'pasta-check': {
                 // página esperada: a pasta de destino
                 if (paginaAtual() !== 'pasta') {
+                    if (paginaAtual() === 'caderno' && !registrarTransicaoPastaCaderno(cadernoIdDaUrl())) return;
                     irPara(urlPasta()); // navega → próximo boot retoma em pasta-check
                     return;
                 }
@@ -2384,7 +2424,7 @@
                         estado.fase = 'coletando';
                         estado.cadernoAtual = estado.biblioteca[idCaderno];
                         estado.mensagem = 'Abrindo caderno ' + idCaderno + ' para retomar a coleta...';
-                        salvarEstado();
+                        salvarEstado(true);
                         UI.renderBiblioteca();
                         UI.setStatus(estado.mensagem);
                         abrirCadernoEncontradoNaPasta(link, idCaderno);
@@ -2510,13 +2550,14 @@
             UI.renderProgresso();
             return;
         }
+        cancelarAutoResumir();
         estado.status = 'rodando';
         estado.modo = 'lote';
         estado.pausaManual = false;
         estado.erro = null;
         estado.loteInicio = Math.max(0, estado.planIndex);
         estado.loteFim = Math.min(estado.planIndex + estado.config.batchSize, estado.plano.matters.length);
-        salvarEstado();
+        salvarEstado(true);
         UI.renderProgresso();
         log('Execução do plano iniciada.', {
             tipo: 'resultado', nivel: 'ok', fase: 'nenhuma',
@@ -2526,9 +2567,10 @@
     }
 
     function parar() {
+        cancelarAutoResumir();
         estado.status = 'pausado';
         estado.pausaManual = true;
-        salvarEstado();
+        salvarEstado(true);
         UI.renderProgresso();
         log('Execução pausada pelo usuário.', {
             tipo: 'resultado', fase: estado.fase || 'nenhuma', contexto: { planIndex: estado.planIndex, cadernoId: estado.cadernoAtual ? estado.cadernoAtual.id : null }
@@ -2546,13 +2588,14 @@
             UI.setStatus('Carregue o plano e configure primeiro.');
             return;
         }
+        cancelarAutoResumir();
         estado.status = 'rodando';
         estado.modo = 'lote';
         estado.pausaManual = false;
         estado.erro = null;
         estado.loteInicio = Math.max(0, estado.planIndex);
         estado.loteFim = Math.min(estado.planIndex + estado.config.batchSize, estado.plano.matters.length);
-        salvarEstado();
+        salvarEstado(true);
         UI.renderProgresso();
         log('Execução retomada pelo usuário.', {
             tipo: 'resultado', nivel: 'ok', fase: estado.fase || 'nenhuma', contexto: { planIndex: estado.planIndex, loteFim: estado.loteFim }
@@ -3330,6 +3373,8 @@
         '@keyframes tf-pulse{0%,100%{opacity:1}50%{opacity:.35}}',
         '#tec-fabrica .tf-titulo{font-weight:700;font-size:13px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
         '#tec-fabrica .tf-status-txt{font-size:11px;color:#94a3b8;white-space:nowrap}',
+        '#tec-fabrica .tf-quick{background:#1f2937;border:1px solid #334155;color:#e2e8f0;border-radius:7px;cursor:pointer;font-size:12px;line-height:1;padding:5px 7px;min-width:28px}',
+        '#tec-fabrica .tf-quick:hover{background:#374151;border-color:#475569}',
         '#tec-fabrica .tf-collapse{background:none;border:none;color:#64748b;cursor:pointer;font-size:14px;padding:0 2px}',
         '#tec-fabrica .tf-collapse:hover{color:#e2e8f0}',
         '#tec-fabrica .tf-abas{display:flex;gap:2px;padding:6px 8px 0;background:#0f172a;border-bottom:1px solid #1f2937}',
@@ -3416,6 +3461,7 @@
             '  <span class="tf-logo" id="tf-logo"></span>' +
             '  <span class="tf-titulo">Fábrica de Cadernos v' + SCRIPT_VERSION + '</span>' +
             '  <span class="tf-status-txt" id="tf-status-txt">parado</span>' +
+            '  <button class="tf-quick" id="tf-quick-toggle" type="button" title="Pausar ou continuar">⏯</button>' +
             '  <button class="tf-collapse" id="tf-collapse" title="Recolher">—</button>' +
             '</div>' +
             '<div class="tf-abas">' +
@@ -3435,6 +3481,9 @@
             var corpo = painelEl.querySelector('#tf-corpo');
             corpo.style.display = corpo.style.display === 'none' ? '' : 'none';
             painelEl.querySelector('#tf-collapse').textContent = corpo.style.display === 'none' ? '+' : '—';
+        });
+        painelEl.querySelector('#tf-quick-toggle').addEventListener('click', function () {
+            estado.status === 'rodando' ? parar() : continuar();
         });
 
         mostrarAba('plano');
@@ -3747,14 +3796,14 @@
             estado.fase = 'coletando';
             estado.cadernoAtual = caderno;
             estado.mensagem = 'Abrindo caderno ' + caderno.id + '...';
-            salvarEstado();
+            salvarEstado(true);
             UI.setStatus(estado.mensagem);
             irPara(location.origin + '/questoes/cadernos/' + caderno.id); // navega → boot retoma
             return;
         }
         estado.cadernoAtual = caderno;
         estado.fase = 'coletando';
-        salvarEstado();
+        salvarEstado(true);
         UI.renderProgresso();
         try {
             await coletarCaderno(caderno);
@@ -3781,7 +3830,7 @@
         estado.modo = 'sob-demanda';
         estado.retomada = false;
         estado.erro = null;
-        salvarEstado();
+        salvarEstado(true);
         retomarColetaSobDemanda(caderno);
     }
 
@@ -3802,6 +3851,13 @@
         if (logo) {
             logo.className = 'tf-logo' + (estado.status === 'rodando' ? ' rodando' : (estado.status === 'erro' ? ' erro' : (estado.status === 'completo' ? ' completo' : '')));
         }
+        var quick = painelEl.querySelector('#tf-quick-toggle');
+        if (quick) {
+            var rodando = estado.status === 'rodando';
+            quick.textContent = rodando ? '⏸' : '▶';
+            quick.title = rodando ? 'Pausar execução' : 'Continuar execução';
+            quick.setAttribute('aria-label', quick.title);
+        }
         if (abaAtiva === 'exec') mostrarAba('exec');
     };
     UI.renderBiblioteca = function () {
@@ -3820,6 +3876,18 @@
     /* =====================================================================
      * INICIALIZAÇÃO
      * =================================================================== */
+    var autoResumeTimer = null;
+
+    function cancelarAutoResumir() {
+        if (autoResumeTimer === null) return;
+        clearTimeout(autoResumeTimer);
+        autoResumeTimer = null;
+        log('Auto-retomada pendente cancelada.', {
+            tipo: 'decisao', nivel: 'info', fase: estado.fase || 'nenhuma',
+            contexto: { motivo: 'pausa-ou-nova-acao-do-usuario' }
+        });
+    }
+
     // linha distintiva de inicialização: permite conferir no Console qual
     // versão do script está em execução (combina com o título da UI).
     log('SCRIPT_VERSION=' + SCRIPT_VERSION);
@@ -3869,7 +3937,16 @@
         log('Auto-retomada agendada após o boot.', {
             tipo: 'decisao', fase: 'inicializando', contexto: { fase: estado.fase, modo: estado.modo, cadernoId: estado.cadernoAtual ? estado.cadernoAtual.id : null }
         });
-        setTimeout(function () {
+        cancelarAutoResumir();
+        autoResumeTimer = setTimeout(function () {
+            autoResumeTimer = null;
+            if (estado.status !== 'rodando') {
+                log('Auto-retomada ignorada porque a execução foi pausada antes do timer.', {
+                    tipo: 'decisao', nivel: 'info', fase: estado.fase || 'nenhuma',
+                    contexto: { status: estado.status }
+                });
+                return;
+            }
             log('Auto-retomada executando a fase persistida.', {
                 tipo: 'tentativa', fase: estado.fase || 'nenhuma', contexto: { modo: estado.modo, cadernoId: estado.cadernoAtual ? estado.cadernoAtual.id : null }
             });

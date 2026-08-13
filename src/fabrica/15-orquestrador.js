@@ -22,6 +22,41 @@
     function urlPasta() { return location.origin + '/questoes/pastas/' + (estado.config ? estado.config.folderId : ''); }
     function urlCaderno(id) { return location.origin + '/questoes/cadernos/' + id; }
 
+    function registrarTransicaoPastaCaderno(idCaderno) {
+        var agora = Date.now();
+        var chave = String(estado.planIndex) + ':' + String(idCaderno || 'desconhecido');
+        var ciclo = estado.transicaoPastaCaderno;
+        if (!ciclo || ciclo.chave !== chave || agora - Number(ciclo.inicio || 0) > 60000) {
+            ciclo = { chave: chave, inicio: agora, tentativas: 1 };
+        } else {
+            ciclo.tentativas = Number(ciclo.tentativas || 0) + 1;
+        }
+        estado.transicaoPastaCaderno = ciclo;
+        if (ciclo.tentativas >= 3) {
+            estado.status = 'erro';
+            estado.pausaManual = false;
+            estado.fase = 'nenhuma';
+            estado.erro = 'Loop de navegação detectado entre a pasta e o caderno ' + String(idCaderno || '') + '.';
+            estado.mensagem = estado.erro + ' A execução foi interrompida para preservar o estado.';
+            salvarEstado(true);
+            UI.setStatus(estado.mensagem);
+            UI.renderProgresso();
+            log('Loop de navegação detectado; execução interrompida.', {
+                tipo: 'erro', nivel: 'erro', fase: 'pasta-check',
+                contexto: { cadernoId: String(idCaderno || ''), planIndex: estado.planIndex, tentativas: ciclo.tentativas }
+            });
+            return false;
+        }
+        salvarEstado(true);
+        return true;
+    }
+
+    function limparTransicaoPastaCaderno() {
+        if (!estado.transicaoPastaCaderno) return;
+        estado.transicaoPastaCaderno = null;
+        salvarEstado(true);
+    }
+
     function terminarCompleto() {
         estado.status = 'parado';
         estado.fase = 'nenhuma';
@@ -99,6 +134,7 @@
 
     function abrirCadernoEncontradoNaPasta(link, idCaderno) {
         var url = urlCaderno(idCaderno);
+        if (!registrarTransicaoPastaCaderno(idCaderno)) return;
         var clicado = clicarCadernoNaPasta(link);
         log('Abertura do caderno existente solicitada.', {
             tipo: 'resultado', nivel: clicado ? 'ok' : 'warn', fase: 'pasta-check',
@@ -150,7 +186,9 @@
         if (estado.planIndex >= plano.matters.length) { terminarCompleto(); return; }
 
         var materia = plano.matters[estado.planIndex];
-        var existente = acharCadernoPorTitulo(materia.title);
+        var idCadernoRota = paginaAtual() === 'caderno' ? cadernoIdDaUrl() : '';
+        var existente = idCadernoRota ? estado.biblioteca[idCadernoRota] : null;
+        if (!existente) existente = acharCadernoPorTitulo(materia.title);
         log('Avaliando próxima matéria do plano.', {
             tipo: 'observacao', fase: estado.fase || 'nenhuma',
             contexto: { planIndex: estado.planIndex, materias: plano.matters.length, materia: materia.title, cadernoRegistrado: !!existente, pagina: paginaAtual() }
@@ -181,7 +219,8 @@
             }
             estado.cadernoAtual = existente;
             estado.fase = 'coletando';
-            salvarEstado();
+            limparTransicaoPastaCaderno();
+            salvarEstado(true);
             UI.renderProgresso();
             try {
                 await coletarCaderno(existente); // SPA: sem navegação completa
@@ -206,6 +245,7 @@
             case 'pasta-check': {
                 // página esperada: a pasta de destino
                 if (paginaAtual() !== 'pasta') {
+                    if (paginaAtual() === 'caderno' && !registrarTransicaoPastaCaderno(cadernoIdDaUrl())) return;
                     irPara(urlPasta()); // navega → próximo boot retoma em pasta-check
                     return;
                 }
@@ -232,7 +272,7 @@
                         estado.fase = 'coletando';
                         estado.cadernoAtual = estado.biblioteca[idCaderno];
                         estado.mensagem = 'Abrindo caderno ' + idCaderno + ' para retomar a coleta...';
-                        salvarEstado();
+                        salvarEstado(true);
                         UI.renderBiblioteca();
                         UI.setStatus(estado.mensagem);
                         abrirCadernoEncontradoNaPasta(link, idCaderno);
@@ -358,13 +398,14 @@
             UI.renderProgresso();
             return;
         }
+        cancelarAutoResumir();
         estado.status = 'rodando';
         estado.modo = 'lote';
         estado.pausaManual = false;
         estado.erro = null;
         estado.loteInicio = Math.max(0, estado.planIndex);
         estado.loteFim = Math.min(estado.planIndex + estado.config.batchSize, estado.plano.matters.length);
-        salvarEstado();
+        salvarEstado(true);
         UI.renderProgresso();
         log('Execução do plano iniciada.', {
             tipo: 'resultado', nivel: 'ok', fase: 'nenhuma',
@@ -374,9 +415,10 @@
     }
 
     function parar() {
+        cancelarAutoResumir();
         estado.status = 'pausado';
         estado.pausaManual = true;
-        salvarEstado();
+        salvarEstado(true);
         UI.renderProgresso();
         log('Execução pausada pelo usuário.', {
             tipo: 'resultado', fase: estado.fase || 'nenhuma', contexto: { planIndex: estado.planIndex, cadernoId: estado.cadernoAtual ? estado.cadernoAtual.id : null }
@@ -394,13 +436,14 @@
             UI.setStatus('Carregue o plano e configure primeiro.');
             return;
         }
+        cancelarAutoResumir();
         estado.status = 'rodando';
         estado.modo = 'lote';
         estado.pausaManual = false;
         estado.erro = null;
         estado.loteInicio = Math.max(0, estado.planIndex);
         estado.loteFim = Math.min(estado.planIndex + estado.config.batchSize, estado.plano.matters.length);
-        salvarEstado();
+        salvarEstado(true);
         UI.renderProgresso();
         log('Execução retomada pelo usuário.', {
             tipo: 'resultado', nivel: 'ok', fase: estado.fase || 'nenhuma', contexto: { planIndex: estado.planIndex, loteFim: estado.loteFim }
