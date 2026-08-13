@@ -64,10 +64,21 @@
         '#tec-fabrica .tf-caderno .tf-c-meta{font-size:10.5px;color:#94a3b8;margin-bottom:6px}',
         '#tec-fabrica .tf-caderno .tf-c-botoes{display:flex;gap:5px;flex-wrap:wrap}',
         '#tec-fabrica .tf-caderno .tf-btn{font-size:10.5px;padding:4px 8px;border-radius:6px}',
-        '#tec-fabrica .tf-log{font:10.5px/1.5 ui-monospace,Consolas,monospace;color:#94a3b8;background:#0f172a;border:1px solid #1f2937;border-radius:8px;padding:8px;height:210px;overflow-y:auto;white-space:pre-wrap;word-break:break-word}',
-        '#tec-fabrica .tf-log .ok{color:#4ade80}',
-        '#tec-fabrica .tf-log .warn{color:#fbbf24}',
-        '#tec-fabrica .tf-log .err{color:#f87171}',
+        '#tec-fabrica .tf-log-toolbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:7px}',
+        '#tec-fabrica .tf-log-count{flex:1;min-width:150px;color:#94a3b8;font-size:10.5px}',
+        '#tec-fabrica .tf-log-event{border:1px solid #1e293b;border-left:3px solid #64748b;border-radius:7px;background:#111827;padding:6px 7px;margin-bottom:5px;white-space:normal}',
+        '#tec-fabrica .tf-log-event.ok{border-left-color:#22c55e}',
+        '#tec-fabrica .tf-log-event.info{border-left-color:#60a5fa}',
+        '#tec-fabrica .tf-log-event.warn{border-left-color:#f59e0b}',
+        '#tec-fabrica .tf-log-event.erro{border-left-color:#ef4444}',
+        '#tec-fabrica .tf-log-meta{display:flex;align-items:center;gap:5px;flex-wrap:wrap;color:#64748b;font-size:9.5px;line-height:1.3}',
+        '#tec-fabrica .tf-log-badge{border-radius:4px;padding:1px 4px;background:#1e293b;color:#cbd5e1;font-weight:700}',
+        '#tec-fabrica .tf-log-event.ok .tf-log-badge{color:#86efac;background:#14532d}',
+        '#tec-fabrica .tf-log-event.warn .tf-log-badge{color:#fde68a;background:#78350f}',
+        '#tec-fabrica .tf-log-event.erro .tf-log-badge{color:#fecaca;background:#7f1d1d}',
+        '#tec-fabrica .tf-log-message{display:block;color:#e2e8f0;font:10.5px/1.45 ui-monospace,Consolas,monospace;word-break:break-word;margin-top:3px}',
+        '#tec-fabrica .tf-log-context{display:block;color:#93c5fd;font:9.5px/1.35 ui-monospace,Consolas,monospace;word-break:break-word;margin-top:3px;white-space:pre-wrap}',
+        '#tec-fabrica .tf-log{font:10.5px/1.5 ui-monospace,Consolas,monospace;color:#94a3b8;background:#0f172a;border:1px solid #1f2937;border-radius:8px;padding:8px;height:330px;overflow-y:auto;white-space:normal;word-break:break-word}',
         '#tec-fabrica ::-webkit-scrollbar{width:8px}',
         '#tec-fabrica ::-webkit-scrollbar-thumb{background:#334155;border-radius:99px}',
         '#tec-fabrica .tf-vazio{color:#64748b;font-size:11.5px;text-align:center;padding:14px 0}',
@@ -262,17 +273,50 @@
     }
 
     function htmlLog() {
-        return '<div class="tf-log" id="tf-log-box">' + ultimasLinhasLog.join('\n') + '</div>';
+        var logs = Array.isArray(estado.logs) ? estado.logs : [];
+        var visiveis = Math.min(logs.length, 300);
+        return '<div class="tf-log-toolbar">' +
+            '<span class="tf-log-count">Eventos persistidos: <b>' + logs.length + '</b> · mostrando ' + visiveis + '</span>' +
+            '<button class="tf-btn sec" id="tf-log-copiar" type="button">Copiar</button>' +
+            '<button class="tf-btn sec" id="tf-log-limpar" type="button">Limpar</button>' +
+            '</div>' +
+            '<div class="tf-log" id="tf-log-box">' + renderEventosLog(logs) + '</div>';
     }
 
-    var ultimasLinhasLog = [];
-    function anexarLog(msg) {
-        var t = new Date().toLocaleTimeString('pt-BR') + ' ' + msg;
-        ultimasLinhasLog.push(escapeHtml(t));
-        if (ultimasLinhasLog.length > 200) ultimasLinhasLog.shift();
+    function renderEventoLog(evento) {
+        var e = evento || {};
+        var nivel = /^(ok|info|warn|erro)$/.test(String(e.nivel || '')) ? String(e.nivel) : 'info';
+        var tipo = escapeHtml(e.tipo || 'evento');
+        var fase = escapeHtml(e.fase || 'nenhuma');
+        var quando = escapeHtml(e.at || '');
+        var mensagem = escapeHtml(e.mensagem || '');
+        var contexto = '';
+        if (e.contexto !== undefined && e.contexto !== null) {
+            try { contexto = '<span class="tf-log-context">' + escapeHtml(JSON.stringify(e.contexto)) + '</span>'; }
+            catch (err) { contexto = '<span class="tf-log-context">[contexto indisponível]</span>'; }
+        }
+        return '<article class="tf-log-event ' + nivel + '">' +
+            '<div class="tf-log-meta"><span class="tf-log-badge">' + escapeHtml(nivel.toUpperCase()) + '</span>' +
+            '<span>' + tipo + '</span><span>fase: ' + fase + '</span><span>' + quando + '</span></div>' +
+            '<span class="tf-log-message">' + mensagem + '</span>' + contexto + '</article>';
+    }
+
+    function renderEventosLog(logs) {
+        var lista = Array.isArray(logs) ? logs.slice(-300) : [];
+        return lista.map(renderEventoLog).join('') || '<div class="tf-vazio">Nenhum evento registrado.</div>';
+    }
+
+    function textoCompletoLog() {
+        var logs = Array.isArray(estado.logs) ? estado.logs : [];
+        return logs.map(function (evento) {
+            return typeof formatarEventoLog === 'function' ? formatarEventoLog(evento) : JSON.stringify(evento);
+        }).join('\n');
+    }
+
+    function anexarLog(evento) {
         var box = document.getElementById('tf-log-box');
         if (box) {
-            box.innerHTML = ultimasLinhasLog.join('\n');
+            box.innerHTML = renderEventosLog(Array.isArray(estado.logs) ? estado.logs : [evento]);
             box.scrollTop = box.scrollHeight;
         }
     }
@@ -344,6 +388,39 @@
         if (iniciar) iniciar.addEventListener('click', function () { continuar(); });
         var btnParar = corpo.querySelector('#tf-parar');
         if (btnParar) btnParar.addEventListener('click', parar);
+
+        var copiarLog = corpo.querySelector('#tf-log-copiar');
+        if (copiarLog) copiarLog.addEventListener('click', function () {
+            var texto = textoCompletoLog();
+            var fallback = function () {
+                if (typeof document === 'undefined' || !document.execCommand) return;
+                var auxiliar = document.createElement('textarea');
+                auxiliar.value = texto;
+                auxiliar.setAttribute('readonly', '');
+                auxiliar.style.position = 'fixed';
+                auxiliar.style.opacity = '0';
+                document.body.appendChild(auxiliar);
+                auxiliar.select();
+                try { document.execCommand('copy'); copiarLog.textContent = 'Copiado'; }
+                finally { auxiliar.remove(); }
+                setTimeout(function () { copiarLog.textContent = 'Copiar'; }, 1200);
+            };
+            if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                navigator.clipboard.writeText(texto).then(function () {
+                    copiarLog.textContent = 'Copiado';
+                    setTimeout(function () { copiarLog.textContent = 'Copiar'; }, 1200);
+                }).catch(fallback);
+                return;
+            }
+            fallback();
+        });
+
+        var limparLog = corpo.querySelector('#tf-log-limpar');
+        if (limparLog) limparLog.addEventListener('click', function () {
+            estado.logs = [];
+            salvarEstado(true);
+            mostrarAba('log');
+        });
 
         corpo.querySelectorAll('[data-acao]').forEach(function (b) {
             b.addEventListener('click', function () {
@@ -433,4 +510,12 @@
         if (!painelEl) return;
         if (abaAtiva === 'biblio') mostrarAba('biblio');
     };
+
+    if (typeof window !== 'undefined') {
+        window.__TecFabricaLogUI = {
+            renderEvento: renderEventoLog,
+            renderEventos: renderEventosLog,
+            textoCompleto: textoCompletoLog
+        };
+    }
 
