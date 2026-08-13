@@ -78,7 +78,7 @@
 
     function estadoVazio() {
         return {
-            plano: null, config: null, status: 'parado', fase: 'nenhuma', modo: 'lote',
+            plano: null, planoTexto: '', config: null, status: 'parado', fase: 'nenhuma', modo: 'lote',
             planIndex: 0, loteInicio: 0, loteFim: 0, cadernoAtual: null,
             biblioteca: {}, impressao: { data: '', usadas: 0 }, impressaoParte: null,
             mensagem: '', erro: null, retomada: false, atualizadoEm: null
@@ -328,6 +328,7 @@
 
     if (typeof window !== 'undefined') {
         window.__TecFabricaPersistence = {
+            estadoVazio: estadoVazio,
             sanitizarParaPersistencia: sanitizarParaPersistencia,
             validarEstado: validarEstado,
             indexarEstado: indexarEstado,

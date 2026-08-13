@@ -62,6 +62,17 @@ test('reconstrução meta+cadernos+questões preserva o agregado', () => {
   assert.equal(hooks.reconstruirEstadoV2({ key: 'bad', schema: 1 }, [], []), null);
 });
 
+test('estado vazio inicializa texto do plano e v2 preserva texto original', () => {
+  const hooks = loadHooks();
+  assert.equal(hooks.estadoVazio().planoTexto, '');
+  const restored = hooks.reconstruirEstadoV2(
+    { key: 'state', schema: 2, planoTexto: '{"materias":[]}' },
+    [],
+    []
+  );
+  assert.equal(restored.planoTexto, '{"materias":[]}');
+});
+
 test('parser de migração aceita JSON v1 válido e rejeita inválido', () => {
   const hooks = loadHooks();
   const valid = { biblioteca: { c1: { id: 'c1', questoes: [] } } };
