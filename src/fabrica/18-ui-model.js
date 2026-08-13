@@ -36,6 +36,10 @@
 
         for (i = 0; i < paths.length; i += 1) {
             var partes = texto(paths[i]).split('>').map(function (parte) { return parte.trim(); }).filter(Boolean);
+            if (!partes.length) {
+                if (ids[i] != null && texto(ids[i]) !== '') roots.push({ label: 'Assunto sem caminho', code: texto(ids[i]), children: new Array() });
+                continue;
+            }
             var nivel = roots;
             var node = null;
             var j;
@@ -56,7 +60,7 @@
     function agruparPorCategoria(plano) {
         var categorias = new Array();
         var matters = lista(plano && plano.matters);
-        var indices = {};
+        var indices = Object.create(null);
         matters.forEach(function (matter) {
             var name = matter && matter.group ? texto(matter.group) : 'Sem categoria';
             var categoria = indices[name];

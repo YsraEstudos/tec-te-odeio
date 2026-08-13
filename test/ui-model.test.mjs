@@ -48,6 +48,30 @@ test('agrupa matérias por categoria e cria níveis deduplicados de submatérias
   assert.equal(model.construirAssuntos(categorias[0].matters[0])[0].children[0].label, 'Morfologia');
 });
 
+test('cria fallback para caminho vazio ou nulo e preserva a associação por índice', () => {
+  const model = loadModel();
+  const assuntos = model.construirAssuntos({
+    subjectIds: ['sem-caminho', 'com-caminho', 'sem-caminho-2'],
+    subjectPaths: ['', 'Raiz > Folha', null]
+  });
+  const semCaminho = assuntos.filter((item) => item.label === 'Assunto sem caminho');
+  assert.equal(semCaminho.length, 2);
+  assert.deepEqual(semCaminho.map((item) => item.code), ['sem-caminho', 'sem-caminho-2']);
+  assert.equal(assuntos[1].children[0].code, 'com-caminho');
+});
+
+test('agrupa categorias reservadas sem colisão de propriedades e preserva a ordem', () => {
+  const model = loadModel();
+  const categorias = model.agruparPorCategoria({ matters: [
+    { title: 'A', group: '__proto__', subjectIds: [] },
+    { title: 'B', group: 'constructor', subjectIds: [] },
+    { title: 'C', group: '__proto__', subjectIds: [] }
+  ] });
+  assert.deepEqual(categorias.map((item) => item.name), ['__proto__', 'constructor']);
+  assert.equal(categorias[0].matters.length, 2);
+  assert.equal(categorias[1].matters.length, 1);
+});
+
 test('renderiza a árvore recolhida e escapa nomes fornecidos pelo plano', () => {
   const model = loadModel();
   const html = model.renderArvore({ matters: [{ title: '<Português>', group: 'Base', subjectIds: ['1'], subjectPaths: ['Língua > Classes'] }] });
