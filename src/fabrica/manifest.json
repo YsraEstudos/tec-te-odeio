@@ -1,0 +1,155 @@
+{
+  "name": "tec-fabrica-cadernos",
+  "version": "2.0.0",
+  "monolith": "tec_fabrica_cadernos.user.js",
+  "output": "dist/tec_fabrica_cadernos.user.js",
+  "userscript": {
+    "name": "Tec Concursos — Fábrica de Cadernos",
+    "namespace": "tec-fabrica-cadernos",
+    "description": "Cria cadernos em lote a partir de um plano de matérias (com bancas e anos), coleta cada questão com o gabarito oficial e exporta HTML interativo + Excel completos.",
+    "author": "voce",
+    "match": [
+      "https://www.tecconcursos.com.br/*"
+    ],
+    "grant": [
+      "none"
+    ],
+    "runAt": "document-idle"
+  },
+  "versionSync": [
+    {
+      "kind": "@version",
+      "fragment": "00-cabecalho.js",
+      "pattern": "^// @version\\s+.*$",
+      "template": "// @version      {{VERSION}}"
+    },
+    {
+      "kind": "SCRIPT_VERSION",
+      "fragment": "00-cabecalho.js",
+      "pattern": "^(\\s*)var SCRIPT_VERSION = '[^']*';$",
+      "template": "$1var SCRIPT_VERSION = '{{VERSION}}';"
+    }
+  ],
+  "fragments": [
+    {
+      "id": "00",
+      "file": "00-cabecalho.js",
+      "section": "(sem título)",
+      "lines": "1-38"
+    },
+    {
+      "id": "01",
+      "file": "01-config.js",
+      "section": "CONFIG",
+      "lines": "39-61"
+    },
+    {
+      "id": "02",
+      "file": "02-timers.js",
+      "section": "TIMERS À PROVA DE ABA EM SEGUNDO PLANO",
+      "lines": "62-95"
+    },
+    {
+      "id": "03",
+      "file": "03-dom-helpers.js",
+      "section": "DOM HELPERS",
+      "lines": "96-147"
+    },
+    {
+      "id": "04",
+      "file": "04-plano.js",
+      "section": "PLANO (aceita o JSON do usuário e o formato Markdown consolidado)",
+      "lines": "148-435"
+    },
+    {
+      "id": "05",
+      "file": "05-estado.js",
+      "section": "ESTADO PERSISTENTE (retomável em qualquer fase)",
+      "lines": "436-438"
+    },
+    {
+      "id": "06",
+      "file": "06-persistencia.js",
+      "section": "PERSISTÊNCIA SEGURA",
+      "lines": "439-589"
+    },
+    {
+      "id": "07",
+      "file": "07-paginas.js",
+      "section": "PÁGINAS / NAVEGAÇÃO",
+      "lines": "590-687"
+    },
+    {
+      "id": "08",
+      "file": "08-extracao.js",
+      "section": "EXTRAÇÃO DA QUESTÃO (DOM, HTML limpo + metadados)",
+      "lines": "688-798"
+    },
+    {
+      "id": "09",
+      "file": "09-interceptor.js",
+      "section": "INTERCEPTAÇÃO DO GABARITO (zero requisições extras)",
+      "lines": "799-859"
+    },
+    {
+      "id": "10",
+      "file": "10-resolucao.js",
+      "section": "GABARITO VIA RESOLUÇÃO (clique como um humano faria)",
+      "lines": "860-916"
+    },
+    {
+      "id": "11",
+      "file": "11-filtros.js",
+      "section": "ENGINE — FILTROS",
+      "lines": "917-1073"
+    },
+    {
+      "id": "12",
+      "file": "12-criacao.js",
+      "section": "ENGINE — CRIAÇÃO DO CADERNO",
+      "lines": "1074-1102"
+    },
+    {
+      "id": "13",
+      "file": "13-impressao.js",
+      "section": "ENGINE — IMPRESSÃO (réplica do projeto: partes de até 200 questões,",
+      "lines": "1103-1347"
+    },
+    {
+      "id": "14",
+      "file": "14-coleta.js",
+      "section": "ENGINE — COLETA (copia cada questão com gabarito)",
+      "lines": "1348-1466"
+    },
+    {
+      "id": "15",
+      "file": "15-orquestrador.js",
+      "section": "ORQUESTRADOR — máquina de fases retomável por navegação",
+      "lines": "1467-1776"
+    },
+    {
+      "id": "16",
+      "file": "16-api-publica.js",
+      "section": "(continua — exportadores e UI nas próximas seções)",
+      "lines": "1777-1789"
+    },
+    {
+      "id": "17",
+      "file": "17-exportacao.js",
+      "section": "EXPORTAÇÃO — réplica fiel dos templates do projeto \"Tecconcursos\"",
+      "lines": "1790-2237"
+    },
+    {
+      "id": "18",
+      "file": "18-ui.js",
+      "section": "UI — painel \"Fábrica de Cadernos\" (dark, consistente com o projeto)",
+      "lines": "2238-2642"
+    },
+    {
+      "id": "19",
+      "file": "19-inicializacao.js",
+      "section": "INICIALIZAÇÃO",
+      "lines": "2643-2698"
+    }
+  ]
+}

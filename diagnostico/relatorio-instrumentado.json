@@ -1,0 +1,127 @@
+{
+  "geradoEm": "2026-08-13T01:58:09.663Z",
+  "ok": true,
+  "achados": [],
+  "verificacoes": [
+    "ok: setTimeout contado (2)",
+    "ok: setInterval contado (1)",
+    "ok: clearInterval contado (1)",
+    "ok: intervalo ativo removido após clear (0)",
+    "ok: timeout ativo rastreado (2)",
+    "ok: blob URLs: 2 criadas / 1 revogadas (delta 1)",
+    "ok: worker criado/terminado (1/1, ativos 0)",
+    "ok: XHR api contado (open 1, api 1, 200 1)",
+    "ok: IDB contado (aberturas 1, transações 1)",
+    "ok: fetch api contado (1/1)",
+    "ok: domínio tecconcursos registrado (2)",
+    "ok: memória observável via performance.memory",
+    "ok: anel de URLs com 2 entradas",
+    "ok: índices de persistência observáveis",
+    "ok: amostragem/snapshot funcionam",
+    "ok: zerar reinicia contadores",
+    "ok: contadores voltam a contar após zerar",
+    "ok: desativar marca inativo",
+    "ok: desativar restaura timers originais"
+  ],
+  "contadores": {
+    "iniciadoEm": 1786586289662,
+    "timers": {
+      "setTimeout": 2,
+      "setInterval": 1,
+      "clearTimeout": 0,
+      "clearInterval": 1,
+      "ativosTimeout": 2,
+      "ativosInterval": 0
+    },
+    "urls": {
+      "criadas": 2,
+      "revogadas": 1,
+      "delta": 1
+    },
+    "workers": {
+      "criados": 1,
+      "terminados": 1,
+      "ativos": 0
+    },
+    "requests": {
+      "xhrOpen": 1,
+      "xhrSend": 1,
+      "xhrApi": 1,
+      "xhrStatus200": 1,
+      "xhrErros": 0,
+      "fetch": 1,
+      "fetchApi": 1
+    },
+    "idb": {
+      "aberturas": 1,
+      "sucesso": 0,
+      "erro": 0,
+      "transacoes": 1
+    },
+    "persistencia": {
+      "salvarEstado": 0,
+      "salvarEstadoIdb": 0,
+      "salvarSnapshot": 0,
+      "carregarEstado": 0
+    },
+    "scheduler": {
+      "sleep": 0,
+      "poll": 0,
+      "cancelar": 0,
+      "limpar": 0
+    },
+    "interceptor": {
+      "instalado": 0
+    },
+    "dominios": {
+      "www.tecconcursos.com.br": 2
+    },
+    "ultimasUrls": [
+      "https://www.tecconcursos.com.br/api/cadernos/1/questoes/2",
+      "https://www.tecconcursos.com.br/api/filtros"
+    ],
+    "memoria": {
+      "usado": 12582912,
+      "total": 16777216,
+      "limite": 2147483648
+    },
+    "nosDocumento": null
+  },
+  "observaveis": {
+    "indices": {
+      "cadernos": 2,
+      "questoes": 3,
+      "porCaderno": 2
+    }
+  },
+  "amostras": [
+    {
+      "t": 1786586289663,
+      "memoria": {
+        "usado": 12582912,
+        "total": 16777216,
+        "limite": 2147483648
+      },
+      "timersAtivos": 2,
+      "urlsDelta": 1,
+      "workersAtivos": 0,
+      "idbAberturas": 1,
+      "salvarEstado": 0,
+      "salvarSnapshot": 0
+    },
+    {
+      "t": 1786586289663,
+      "memoria": {
+        "usado": 12582912,
+        "total": 16777216,
+        "limite": 2147483648
+      },
+      "timersAtivos": 2,
+      "urlsDelta": 1,
+      "workersAtivos": 0,
+      "idbAberturas": 1,
+      "salvarEstado": 0,
+      "salvarSnapshot": 0
+    }
+  ]
+}
