@@ -14,6 +14,32 @@
         });
     }
 
+    function chevronSvg() {
+        return '<svg class="tf-tree-chevron" viewBox="0 0 10 10" width="10" height="10" aria-hidden="true" focusable="false"><path d="M3 2l4 3-4 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
+    }
+
+    function quantidadeTexto(count, singular, plural) {
+        return texto(count) + ' ' + (count === 1 ? singular : plural);
+    }
+
+    function codigoHtml(code) {
+        if (code == null || texto(code) === '') return '';
+        return '<span class="tf-tree-code">' + escaparHtml(code) + '</span>';
+    }
+
+    function metaCodigoHtml(code) {
+        var codigo = codigoHtml(code);
+        return codigo ? '<span class="tf-tree-meta">Código ' + codigo + '</span>' : '';
+    }
+
+    function resumoHtml(label, meta) {
+        return '<summary class="tf-tree-label">' + chevronSvg() + '<span class="tf-tree-label-text">' + escaparHtml(label) + '</span>' + (meta || '') + '</summary>';
+    }
+
+    function quantidadeAssuntos(matter) {
+        return Math.max(lista(matter && matter.subjectIds).length, lista(matter && matter.subjectPaths).length);
+    }
+
     function lista(value) {
         return Array.isArray(value) ? value : new Array();
     }
@@ -79,18 +105,19 @@
         return nodes.map(function (node) {
             var label = escaparHtml(node.label);
             if (node.children.length) {
-                return '<details class="tf-tree-node tf-tree-subject"><summary class="tf-tree-label">' + label + '</summary>' + renderAssuntos(node.children) + '</details>';
+                return '<details class="tf-tree-node tf-tree-subject">' + resumoHtml(node.label, metaCodigoHtml(node.code)) + '<div class="tf-tree-children">' + renderAssuntos(node.children) + '</div></details>';
             }
-            return '<div class="tf-tree-leaf" data-code="' + escaparHtml(node.code) + '">' + label + '</div>';
+            return '<div class="tf-tree-leaf" data-code="' + escaparHtml(node.code) + '"><span class="tf-tree-label-text">' + label + '</span>' + metaCodigoHtml(node.code) + '</div>';
         }).join('');
     }
 
     function renderArvore(plano) {
         return agruparPorCategoria(plano).map(function (categoria) {
             var matters = categoria.matters.map(function (matter) {
-                return '<details class="tf-tree-node tf-tree-matter"><summary class="tf-tree-label">' + escaparHtml(matter && matter.title) + '</summary>' + renderAssuntos(construirAssuntos(matter)) + '</details>';
+                var meta = '<span class="tf-tree-meta">' + codigoHtml(matter && matter.code) + '<span class="tf-tree-subject-count">' + quantidadeTexto(quantidadeAssuntos(matter), 'assunto', 'assuntos') + '</span></span>';
+                return '<details class="tf-tree-node tf-tree-matter">' + resumoHtml(matter && matter.title, meta) + '<div class="tf-tree-children">' + renderAssuntos(construirAssuntos(matter)) + '</div></details>';
             }).join('');
-            return '<details class="tf-tree-node tf-tree-category"><summary class="tf-tree-label">' + escaparHtml(categoria.name) + '</summary>' + matters + '</details>';
+            return '<details class="tf-tree-node tf-tree-category">' + resumoHtml(categoria.name, '<span class="tf-tree-count">' + quantidadeTexto(categoria.matters.length, 'matéria', 'matérias') + '</span>') + '<div class="tf-tree-children">' + matters + '</div></details>';
         }).join('');
     }
 
