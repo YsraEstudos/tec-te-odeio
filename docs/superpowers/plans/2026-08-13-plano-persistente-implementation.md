@@ -143,8 +143,7 @@ git commit -m "feat: adiciona modelo da arvore do plano"
 ### Task 2: Persistir o texto original do plano no estado
 
 **Files:**
-- Modify: `src/fabrica/05-estado.js` — incluir `planoTexto: ''` em `estadoVazio()`
-- Modify: `src/fabrica/06-persistencia.js` — expor `estadoVazio` no hook de teste existente
+- Modify: `src/fabrica/06-persistencia.js` — incluir `planoTexto: ''` em `estadoVazio()` e expor a função no hook de teste existente
 - Modify: `test/persistence.test.mjs` — cobrir estado novo e reconstrução v2
 
 **Interfaces:**
@@ -177,7 +176,7 @@ Expected: FAIL porque `estadoVazio` ainda não está exposto e o campo ainda nã
 
 - [ ] **Step 3: Implementar o contrato persistente**
 
-Adicionar `planoTexto: ''` ao retorno de `estadoVazio()` antes de `config`. O reconstrutor v2 já copia campos de metadados que não sejam `key`/`schema`, portanto não criar uma nova store nem elevar `IDB_VERSION`; apenas expor `estadoVazio: estadoVazio` em `window.__TecFabricaPersistence` para a regressão unitária.
+Adicionar `planoTexto: ''` ao retorno de `estadoVazio()` em `06-persistencia.js`, antes de `config`. O reconstrutor v2 já copia campos de metadados que não sejam `key`/`schema`, portanto não criar uma nova store nem elevar `IDB_VERSION`; apenas expor `estadoVazio: estadoVazio` em `window.__TecFabricaPersistence` para a regressão unitária.
 
 - [ ] **Step 4: Rodar a suíte de persistência em verde**
 
