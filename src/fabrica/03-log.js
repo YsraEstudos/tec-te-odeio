@@ -92,6 +92,11 @@
     function log(mensagem, opcoes) {
         var options = opcoes && typeof opcoes === 'object' ? opcoes : {};
         var state = obterEstadoParaLog();
+        if (state && Array.isArray(state.logs)) {
+            state.logs.forEach(function (item) {
+                if (item && Number.isFinite(Number(item.id)) && Number(item.id) > logSequencia) logSequencia = Number(item.id);
+            });
+        }
         var tipo = LOG_TIPOS[options.tipo] ? options.tipo : 'evento';
         var nivel = LOG_NIVEIS[options.nivel] ? options.nivel : 'info';
         var fase = options.fase !== undefined && options.fase !== null ? String(options.fase) :
@@ -102,7 +107,7 @@
             tipo: tipo,
             nivel: nivel,
             fase: truncarStringLog(fase, LOG_MAX_FASE),
-            mensagem: String(mensagem),
+            mensagem: truncarStringLog(mensagem, LOG_MAX_STRING),
             contexto: Object.prototype.hasOwnProperty.call(options, 'contexto') ? normalizarContextoLog(options.contexto) : null
         };
 

@@ -28,10 +28,28 @@
     }
 
     async function clicarAba(titulo) {
+        log('Tentando abrir aba de filtro.', {
+            tipo: 'tentativa', fase: 'filtros', contexto: { aba: titulo }
+        });
         var tab = visiveis('.menu-alternador-opcao').find(function (n) { return mesmoTexto(n.innerText, titulo); });
-        if (!tab) throw new Error('Aba de filtro "' + titulo + '" não encontrada.');
+        if (!tab) {
+            log('Aba de filtro não encontrada.', {
+                tipo: 'erro', nivel: 'erro', fase: 'filtros', contexto: { aba: titulo }
+            });
+            throw new Error('Aba de filtro "' + titulo + '" não encontrada.');
+        }
         tab.click();
-        await esperar(function () { return !!boxDaAba(titulo); }, 10000, 'A aba "' + titulo + '" não abriu.');
+        try {
+            await esperar(function () { return !!boxDaAba(titulo); }, 10000, 'A aba "' + titulo + '" não abriu.');
+            log('Aba de filtro pronta.', {
+                tipo: 'resultado', nivel: 'ok', fase: 'filtros', contexto: { aba: titulo }
+            });
+        } catch (e) {
+            log('Aba de filtro não ficou pronta.', {
+                tipo: 'resultado', nivel: 'erro', fase: 'filtros', contexto: { aba: titulo, motivo: String(e && e.message || e) }
+            });
+            throw e;
+        }
     }
 
     function itemDaArvore(box, texto) {
@@ -49,21 +67,37 @@
     }
 
     async function selecionarValor(titulo, valor) {
+        log('Tentando selecionar valor de filtro.', {
+            tipo: 'tentativa', fase: 'filtros', contexto: { aba: titulo, valor: valor }
+        });
         await clicarAba(titulo);
         var box = boxDaAba(titulo);
         if (titulo === 'Ano') {
             var anoItem = itemDaArvore(box, valor);
-            if (!anoItem) throw new Error('Ano ' + valor + ' não encontrado na lista.');
+            if (!anoItem) {
+                log('Ano não encontrado na árvore de filtros.', {
+                    tipo: 'resultado', nivel: 'erro', fase: 'filtros', contexto: { aba: titulo, valor: valor }
+                });
+                throw new Error('Ano ' + valor + ' não encontrado na lista.');
+            }
             await pausaAleatoria();
             (anoItem.querySelector('.arvore-item-conteudo') || anoItem).click();
             await esperar(function () { return itemSelecionado(box, valor); }, 6000, 'Seleção do ano ' + valor + ' não confirmada.');
+            log('Valor de filtro selecionado.', {
+                tipo: 'resultado', nivel: 'ok', fase: 'filtros', contexto: { aba: titulo, valor: valor }
+            });
             return;
         }
         // Demais abas: busca por nome
         var link = Array.from(box.querySelectorAll('a')).find(function (a) { return clean(a.innerText) === 'Pesquisar por nome'; });
         if (link) { link.click(); await workerSleep(600); }
         var search = box.querySelector("input[ng-model='vm.textoBusca']");
-        if (!search) throw new Error('Campo de busca da aba "' + titulo + '" não encontrado.');
+        if (!search) {
+            log('Campo de busca do filtro não encontrado.', {
+                tipo: 'erro', nivel: 'erro', fase: 'filtros', contexto: { aba: titulo }
+            });
+            throw new Error('Campo de busca da aba "' + titulo + '" não encontrado.');
+        }
         var candidatos = titulo === 'Banca' ? (ALIASES_BANCA[valor] || [valor]) : [valor];
         var item = null;
         var candidatoAchado = null;
@@ -75,13 +109,21 @@
                 candidatoAchado = candidatos[i];
             } catch (e) { item = null; }
         }
-        if (!item) throw new Error('"' + valor + '" não encontrado no filtro ' + titulo + '.');
+        if (!item) {
+            log('Valor não encontrado no filtro.', {
+                tipo: 'resultado', nivel: 'erro', fase: 'filtros', contexto: { aba: titulo, valor: valor }
+            });
+            throw new Error('"' + valor + '" não encontrado no filtro ' + titulo + '.');
+        }
         await pausaAleatoria();
         // a lista pode ter sido re-renderizada pelo Angular após a busca: re-obtém o nó fresco
         if (!item.isConnected) item = itemDaArvore(box, candidatoAchado) || item;
         (item.querySelector('.arvore-item-conteudo') || item).click();
         try {
             await esperar(function () { return itemSelecionado(box, candidatoAchado); }, 2500, '');
+            log('Valor de filtro selecionado.', {
+                tipo: 'resultado', nivel: 'ok', fase: 'filtros', contexto: { aba: titulo, valor: valor, candidato: candidatoAchado }
+            });
             return;
         } catch (e) {
             // fallback Angular (mesmo do projeto): dispara vm.notificarClick no escopo do item
@@ -96,8 +138,14 @@
                 else if (typeof scope.$apply === 'function') scope.$apply(notify);
                 else notify();
                 await esperar(function () { return itemSelecionado(box, candidatoAchado); }, 6000, 'O TecConcursos ignorou a seleção de "' + valor + '".');
+                log('Valor de filtro selecionado pelo fallback Angular.', {
+                    tipo: 'resultado', nivel: 'ok', fase: 'filtros', contexto: { aba: titulo, valor: valor, candidato: candidatoAchado, metodo: 'angular-fallback' }
+                });
                 return;
             }
+            log('Site ignorou a seleção do filtro.', {
+                tipo: 'resultado', nivel: 'erro', fase: 'filtros', contexto: { aba: titulo, valor: valor }
+            });
             throw new Error('O TecConcursos ignorou a seleção de "' + valor + '".');
         }
     }
@@ -110,12 +158,24 @@
     }
 
     async function limparFiltros() {
-        if (!contarFiltrosAtivos()) return;
+        var ativosAntes = contarFiltrosAtivos();
+        if (!ativosAntes) {
+            log('Nenhum filtro ativo para limpar.', {
+                tipo: 'decisao', fase: 'filtros', contexto: { ativos: 0 }
+            });
+            return;
+        }
+        log('Tentando limpar filtros existentes.', {
+            tipo: 'tentativa', fase: 'filtros', contexto: { ativos: ativosAntes }
+        });
         var limpar = visiveis('.gerador-filtrador-cabecalho-limpar, [class*="limpar"]').find(function (n) { return /Limpar/i.test(n.innerText || ''); });
         if (!limpar) throw new Error('Há filtros ativos, mas não encontrei o controle "Limpar".');
         await pausaAleatoria();
         limpar.click();
         await esperar(function () { return contarFiltrosAtivos() === 0; }, 8000, 'A limpeza dos filtros não foi confirmada.');
+        log('Filtros anteriores limpos.', {
+            tipo: 'resultado', nivel: 'ok', fase: 'filtros', contexto: { antes: ativosAntes, depois: contarFiltrosAtivos() }
+        });
     }
 
     function lerContagem() {
@@ -124,6 +184,10 @@
     }
 
     async function aplicarFiltros(materia, plano) {
+        log('Iniciando aplicação dos filtros da matéria.', {
+            tipo: 'observacao', fase: 'filtros',
+            contexto: { materia: materia.title, assuntos: materia.subjectPaths.length, bancas: plano.banks.length, anos: plano.years.length, removerAnuladas: plano.removeCancelled, removerDesatualizadas: plano.removeOutdated }
+        });
         await limparFiltros();
         // assuntos (folha de cada caminho)
         for (var i = 0; i < materia.subjectPaths.length; i += 1) {
@@ -153,5 +217,9 @@
         }
         // aguarda o contador estabilizar
         await esperar(function () { return lerContagem() > 0; }, CONFIG.filtroTimeout, 'Os filtros não retornaram questões.');
+        log('Filtros aplicados e contador de questões confirmado.', {
+            tipo: 'resultado', nivel: 'ok', fase: 'filtros',
+            contexto: { materia: materia.title, questoes: lerContagem(), filtrosAtivos: contarFiltrosAtivos() }
+        });
     }
 

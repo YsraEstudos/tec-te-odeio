@@ -38,6 +38,7 @@ const NAMES = [
     '10-resolucao',
     '11-filtros',
     '12-criacao',
+    '13-impressao',
     '14-coleta',
     '15-orquestrador',
     '16-api-publica',

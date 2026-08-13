@@ -96,6 +96,9 @@
         if (!valor || typeof valor !== 'object') return valor;
         if (!Array.isArray(valor.logs)) valor.logs = [];
         if (valor.logs.length > 600) valor.logs = valor.logs.slice(-600);
+        valor.logs.forEach(function (item) {
+            if (typeof logSequencia !== 'undefined' && item && Number.isFinite(Number(item.id)) && Number(item.id) > logSequencia) logSequencia = Number(item.id);
+        });
         return valor;
     }
 
@@ -295,8 +298,10 @@
 
     function carregarEstado() {
         return carregarEstadoIdb().then(function (parsed) {
+            var logsDoBoot = Array.isArray(estado.logs) ? estado.logs.slice() : [];
             if (parsed && parsed.failed) {
                 estado = estadoVazio();
+                estado.logs = logsDoBoot.slice(-600);
                 estado.status = 'erro';
                 estado.erro = parsed.reason;
                 estado.mensagem = parsed.reason + '. O legado foi preservado.';
@@ -304,6 +309,8 @@
                 return estado;
             }
             if (parsed && validarEstado(parsed)) {
+                parsed.logs = (Array.isArray(parsed.logs) ? parsed.logs : []).concat(logsDoBoot).slice(-600);
+                normalizarEstadoPersistido(parsed);
                 estado = parsed; indexarEstado(estado); log('Estado restaurado do IndexedDB v2.'); return parsed;
             }
             indexarEstado(estado); return null;

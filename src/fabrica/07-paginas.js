@@ -21,28 +21,70 @@
 
     function irPara(url) {
         return new Promise(function (resolve) {
-            if (location.href.split('?')[0] === url.split('?')[0]) { resolve(true); return; }
+            var origem = location.pathname || '';
+            var destino = String(url || '').split('?')[0];
+            if (location.href.split('?')[0] === url.split('?')[0]) {
+                log('Navegação dispensada: a rota já está aberta.', {
+                    tipo: 'decisao', nivel: 'info', fase: estado.fase || 'navegando',
+                    contexto: { origem: origem, destino: destino, resultado: 'mesma-rota' }
+                });
+                resolve(true);
+                return;
+            }
+            log('Tentando navegar para a próxima etapa.', {
+                tipo: 'tentativa', fase: estado.fase || 'navegando',
+                contexto: { origem: origem, destino: destino }
+            });
             salvarEstado(true);
             var done = false;
             var t0 = Date.now();
             workerTick(300, function () {
                 var cur = location.href;
                 return cur.split('?')[0] === url.split('?')[0] || Date.now() - t0 > 30000;
-            }, 30000, function () { if (!done) { done = true; resolve(true); } });
+            }, 30000, function () {
+                if (!done) {
+                    done = true;
+                    log('Navegação encerrada; o próximo boot continuará a fase.', {
+                        tipo: 'resultado', nivel: location.href.split('?')[0] === url.split('?')[0] ? 'ok' : 'warn',
+                        fase: estado.fase || 'navegando',
+                        contexto: { origem: origem, destino: destino, decorridoMs: Date.now() - t0 }
+                    });
+                    resolve(true);
+                }
+            });
             location.href = url;
         });
     }
 
     function navegarQuestao(numero) {
+        log('Tentando abrir a questão solicitada.', {
+            tipo: 'tentativa', fase: 'coletando',
+            contexto: { numero: Number(numero), questaoAtual: lerQuestaoIdAtual() || null }
+        });
         try {
             salvarEstado(true);
             var appEl = document.querySelector('[ng-app]') || document.body;
             var inj = angular.element(appEl).injector();
             inj.get('$rootScope').$broadcast('abrir-questao', numero);
+            log('Abertura da questão enviada ao Angular.', {
+                tipo: 'resultado', nivel: 'ok', fase: 'coletando',
+                contexto: { numero: Number(numero), metodo: 'angular' }
+            });
             return true;
         } catch (e) {
             var btn = document.querySelector("button[ng-click*='questaoSeguinte']");
-            if (btn) { btn.click(); return true; }
+            if (btn) {
+                btn.click();
+                log('Abertura da questão feita pelo botão de avanço.', {
+                    tipo: 'resultado', nivel: 'ok', fase: 'coletando',
+                    contexto: { numero: Number(numero), metodo: 'botao', motivoAngular: 'indisponivel' }
+                });
+                return true;
+            }
+            log('Não foi possível abrir a questão solicitada.', {
+                tipo: 'resultado', nivel: 'erro', fase: 'coletando',
+                contexto: { numero: Number(numero), metodo: 'nenhum', motivo: 'controles indisponiveis' }
+            });
             return false;
         }
     }

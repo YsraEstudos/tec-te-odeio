@@ -59,7 +59,13 @@
 
     function extrairQuestaoAtual() {
         var art = document.querySelector('article.questao-enunciado');
-        if (!art) return null;
+        if (!art) {
+            log('Questão ainda não disponível no DOM.', {
+                tipo: 'observacao', nivel: 'warn', fase: 'coletando',
+                contexto: { resultado: 'sem-artigo' }
+            });
+            return null;
+        }
 
         var h1 = document.querySelector('h1');
         var idm = h1 ? h1.textContent.match(/#(\d+)/) : null;
@@ -90,7 +96,7 @@
         var linkQ = h1 ? h1.querySelector("a[href*='/questoes/']") : null;
         var urlQ = linkQ ? linkQ.href : (location.origin + '/questoes/' + (idm ? idm[1] : ''));
 
-        return {
+        var questao = {
             id: idm ? idm[1] : null,
             number: pos ? pos.posicao : null,
             total: pos ? pos.total : null,
@@ -107,5 +113,18 @@
             statementHtml: txt ? limparHtml(txt) : '',
             options: alternativas
         };
+        log('Questão extraída do DOM.', {
+            tipo: 'observacao', fase: 'coletando',
+            contexto: {
+                questaoId: questao.id,
+                numero: questao.number,
+                total: questao.total,
+                opcoes: questao.options.length,
+                materia: questao.subject,
+                assunto: questao.topic,
+                enunciadoCaracteres: questao.statement.length
+            }
+        });
+        return questao;
     }
 

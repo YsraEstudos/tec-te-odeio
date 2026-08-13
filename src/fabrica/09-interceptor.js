@@ -23,6 +23,7 @@
         cache: {},          // por idQuestao → letra
         cachePorIndex: {},  // por "cadernoId:index" → letra
         instalado: false,
+        ultimoMetodo: null,
         estatisticas: { viaCache: 0, viaResolucaoVisivel: 0, viaClique: 0, semGabarito: 0 },
         instalar: function () {
             if (this.instalado) return;
@@ -44,13 +45,31 @@
                             var q = data && data.questao;
                             if (q && q.idQuestao != null) {
                                 var letra = extrairGabaritoDoPayload(q);
+                                log('Resposta de questão observada na rede.', {
+                                    tipo: 'observacao', fase: 'coletando',
+                                    contexto: { cadernoId: m[1], indice: Number(m[2]), questaoId: String(q.idQuestao) }
+                                });
                                 if (letra) {
                                     interceptor.cache[String(q.idQuestao)] = letra;
                                     interceptor.cachePorIndex[m[1] + ':' + m[2]] = letra;
+                                    log('Gabarito capturado pela interceptação.', {
+                                        tipo: 'resultado', nivel: 'ok', fase: 'resolvendo',
+                                        contexto: { cadernoId: m[1], indice: Number(m[2]), questaoId: String(q.idQuestao), gabarito: letra, metodo: 'interceptacao' }
+                                    });
+                                } else {
+                                    log('Resposta da questão não trouxe gabarito utilizável.', {
+                                        tipo: 'resultado', nivel: 'warn', fase: 'resolvendo',
+                                        contexto: { cadernoId: m[1], indice: Number(m[2]), questaoId: String(q.idQuestao), gabarito: null, metodo: 'interceptacao' }
+                                    });
                                 }
                             }
                         }
-                    } catch (e) { /* resposta não-JSON ou irrelevante */ }
+                    } catch (e) {
+                        log('Resposta observada não pôde ser interpretada como questão.', {
+                            tipo: 'evento', nivel: 'warn', fase: 'resolvendo',
+                            contexto: { metodo: 'interceptacao', resultado: 'ignorada' }
+                        });
+                    }
                 });
                 return origSend.apply(this, arguments);
             };

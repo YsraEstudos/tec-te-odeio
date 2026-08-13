@@ -56,7 +56,7 @@
             .filter(function (a) { return a.offsetParent !== null; })
             .find(function (a) {
                 var txt = clean(a.innerText || a.textContent);
-                return txt.toLocaleLowerCase('pt-BR') === alvo && !/imprimir/i.test(a.href || '');
+                return txt.toLocaleLowerCase('pt-BR') === alvo;
             }) || null;
     }
 
@@ -77,12 +77,26 @@
     async function processarLote() {
         var plano = estado.plano;
         var config = estado.config;
-        if (!plano || !config) return;
-        if (estado.status !== 'rodando') return;
+        if (!plano || !config) {
+            log('Execução não iniciada: plano ou configuração ausente.', {
+                tipo: 'decisao', nivel: 'warn', fase: 'nenhuma', contexto: { temPlano: !!plano, temConfig: !!config }
+            });
+            return;
+        }
+        if (estado.status !== 'rodando') {
+            log('Execução não avançou porque está pausada ou parada.', {
+                tipo: 'decisao', fase: estado.fase || 'nenhuma', contexto: { status: estado.status, planIndex: estado.planIndex }
+            });
+            return;
+        }
         if (estado.planIndex >= plano.matters.length) { terminarCompleto(); return; }
 
         var materia = plano.matters[estado.planIndex];
         var existente = acharCadernoPorTitulo(materia.title);
+        log('Avaliando próxima matéria do plano.', {
+            tipo: 'observacao', fase: estado.fase || 'nenhuma',
+            contexto: { planIndex: estado.planIndex, materias: plano.matters.length, materia: materia.title, cadernoRegistrado: !!existente, pagina: paginaAtual() }
+        });
 
         /* ---- matéria com caderno registrado: coleta sequencial ---- */
         if (existente) {
@@ -119,7 +133,10 @@
                 estado.erro = String(e && e.message || e);
                 estado.fase = 'nenhuma';
                 salvarEstado();
-                log('ERRO: ' + estado.erro);
+                log('Falha durante a coleta do caderno.', {
+                    tipo: 'erro', nivel: 'erro', fase: 'coletando',
+                    contexto: { cadernoId: existente.id, materia: materia.title, motivo: estado.erro }
+                });
                 UI.setStatus('Erro: ' + estado.erro);
                 UI.renderProgresso();
             }
@@ -138,7 +155,10 @@
                 if (link) {
                     var mId = (link.href || '').match(/cadernos\/(\d+)/);
                     if (mId) {
-                        log('Caderno "' + materia.title + '" já existe (' + mId[1] + '). Usando o existente.');
+                        log('Decisão: caderno encontrado na pasta; usando o existente.', {
+                            tipo: 'decisao', nivel: 'ok', fase: 'pasta-check',
+                            contexto: { materia: materia.title, cadernoId: mId[1], origem: 'pasta' }
+                        });
                         estado.biblioteca[mId[1]] = { id: mId[1], titulo: materia.title, categoria: materia.group || 'Plano', total: 0, coletadas: 0, completo: false, questoes: [] };
                         estado.fase = 'nenhuma';
                         salvarEstado();
@@ -147,7 +167,9 @@
                         return;
                     }
                 }
-                log('Caderno não encontrado na pasta. Criando novo.');
+                log('Decisão: caderno não encontrado; iniciando criação.', {
+                    tipo: 'decisao', fase: 'pasta-check', contexto: { materia: materia.title, proximaFase: 'criar-novo' }
+                });
                 estado.fase = 'criar-novo';
                 salvarEstado();
                 irPara(urlFiltros()); // navega → próximo boot retoma em criar-novo
@@ -166,6 +188,9 @@
                         estado.erro = 'A página de filtros não carregou os controles de criação.';
                         estado.fase = 'nenhuma';
                         salvarEstado();
+                        log('Controles de criação não carregaram na página de filtros.', {
+                            tipo: 'erro', nivel: 'erro', fase: 'criar-novo', contexto: { materia: materia.title, pagina: paginaAtual() }
+                        });
                         UI.setStatus('Erro: ' + estado.erro);
                         return;
                     }
@@ -175,7 +200,9 @@
                     await aplicarFiltros(materia, plano);
                     var contagem = lerContagem();
                     if (!contagem) {
-                        log('Matéria "' + materia.title + '" sem questões nos filtros. Pulando.');
+                        log('Decisão: filtros não retornaram questões; pulando matéria.', {
+                            tipo: 'decisao', nivel: 'warn', fase: 'filtros', contexto: { materia: materia.title, questoes: 0 }
+                        });
                         estado.planIndex += 1;
                         estado.fase = 'nenhuma';
                         salvarEstado();
@@ -185,6 +212,9 @@
                     estado.fase = 'criando';
                     estado.pendenciaContagem = contagem;
                     estado.mensagem = 'Criando caderno: ' + materia.title + ' (' + contagem + ' questões)';
+                    log('Decisão: filtros confirmados; criando caderno.', {
+                        tipo: 'decisao', nivel: 'ok', fase: 'criando', contexto: { materia: materia.title, questoes: contagem }
+                    });
                     salvarEstado();
                     UI.setStatus(estado.mensagem);
                     await criarCaderno(materia, config); // clique → navega → próximo boot retoma em 'criando'
@@ -193,7 +223,9 @@
                     estado.erro = String(e && e.message || e);
                     estado.fase = 'nenhuma';
                     salvarEstado();
-                    log('ERRO: ' + estado.erro);
+                    log('Falha durante filtros ou criação do caderno.', {
+                        tipo: 'erro', nivel: 'erro', fase: 'criar-novo', contexto: { materia: materia.title, motivo: estado.erro }
+                    });
                     UI.setStatus('Erro: ' + estado.erro);
                     UI.renderProgresso();
                 }
@@ -209,12 +241,18 @@
                     estado.fase = 'nenhuma';
                     salvarEstado();
                     UI.renderBiblioteca();
-                    log('Caderno criado: ' + novoId + ' — "' + materia.title + '" (' + contagemSalva + ' questões)');
+                    log('Decisão: caderno recém-criado registrado; iniciando coleta.', {
+                        tipo: 'decisao', nivel: 'ok', fase: 'criando',
+                        contexto: { materia: materia.title, cadernoId: novoId, questoes: contagemSalva, proximaFase: 'coletando' }
+                    });
                     processarLote();
                     return;
                 }
                 // crash entre o clique e a navegação: página ainda é filtros → re-verifica a pasta
                 estado.fase = 'pasta-check';
+                log('Navegação de criação não concluiu; voltando à verificação da pasta.', {
+                    tipo: 'decisao', nivel: 'warn', fase: 'criando', contexto: { materia: materia.title, pagina: paginaAtual(), proximaFase: 'pasta-check' }
+                });
                 salvarEstado();
                 irPara(urlPasta());
                 return;
@@ -223,6 +261,9 @@
                 // fase 'nenhuma' (início/retomada): sempre verifica a pasta antes de criar
                 estado.fase = 'pasta-check';
                 estado.mensagem = 'Verificando se "' + materia.title + '" já existe na pasta...';
+                log('Iniciando matéria pela verificação da pasta.', {
+                    tipo: 'decisao', fase: 'nenhuma', contexto: { materia: materia.title, proximaFase: 'pasta-check' }
+                });
                 salvarEstado();
                 UI.setStatus(estado.mensagem);
                 irPara(urlPasta()); // navega → próximo boot retoma em pasta-check
@@ -232,8 +273,14 @@
     }
 
     function iniciar() {
-        if (estado.status === 'rodando') return;
+        if (estado.status === 'rodando') {
+            log('Comando iniciar ignorado: a execução já está rodando.', { tipo: 'decisao', fase: estado.fase || 'nenhuma' });
+            return;
+        }
         if (!estado.plano || !estado.config) {
+            log('Comando iniciar recusado: falta plano ou configuração.', {
+                tipo: 'decisao', nivel: 'warn', fase: 'nenhuma', contexto: { temPlano: !!estado.plano, temConfig: !!estado.config }
+            });
             UI.setStatus('Carregue o plano e configure antes de iniciar.');
             estado.status = 'parado';
             UI.renderProgresso();
@@ -246,6 +293,10 @@
         estado.loteFim = Math.min(estado.planIndex + estado.config.batchSize, estado.plano.matters.length);
         salvarEstado();
         UI.renderProgresso();
+        log('Execução do plano iniciada.', {
+            tipo: 'resultado', nivel: 'ok', fase: 'nenhuma',
+            contexto: { planIndex: estado.planIndex, loteInicio: estado.loteInicio, loteFim: estado.loteFim, materias: estado.plano.matters.length }
+        });
         processarLote();
     }
 
@@ -253,12 +304,22 @@
         estado.status = 'pausado';
         salvarEstado();
         UI.renderProgresso();
+        log('Execução pausada pelo usuário.', {
+            tipo: 'resultado', fase: estado.fase || 'nenhuma', contexto: { planIndex: estado.planIndex, cadernoId: estado.cadernoAtual ? estado.cadernoAtual.id : null }
+        });
         UI.setStatus('Pausado em ' + (estado.planIndex + 1) + ' de ' + (estado.plano ? estado.plano.matters.length : '?') + ' matérias. Dados preservados.');
     }
 
     function continuar() {
-        if (estado.status === 'rodando') return;
-        if (!estado.plano || !estado.config) { UI.setStatus('Carregue o plano e configure primeiro.'); return; }
+        if (estado.status === 'rodando') {
+            log('Comando continuar ignorado: a execução já está rodando.', { tipo: 'decisao', fase: estado.fase || 'nenhuma' });
+            return;
+        }
+        if (!estado.plano || !estado.config) {
+            log('Comando continuar recusado: falta plano ou configuração.', { tipo: 'decisao', nivel: 'warn', fase: 'nenhuma' });
+            UI.setStatus('Carregue o plano e configure primeiro.');
+            return;
+        }
         estado.status = 'rodando';
         estado.modo = 'lote';
         estado.erro = null;
@@ -266,6 +327,9 @@
         estado.loteFim = Math.min(estado.planIndex + estado.config.batchSize, estado.plano.matters.length);
         salvarEstado();
         UI.renderProgresso();
+        log('Execução retomada pelo usuário.', {
+            tipo: 'resultado', nivel: 'ok', fase: estado.fase || 'nenhuma', contexto: { planIndex: estado.planIndex, loteFim: estado.loteFim }
+        });
         processarLote();
     }
 
