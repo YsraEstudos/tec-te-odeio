@@ -2953,7 +2953,7 @@
         '#tec-fabrica .tf-tree-leaf { padding:7px 9px 7px 25px; color:#cbd5e1; font-size:11.5px; line-height:1.4; border-top:1px solid #1e293b; word-break:break-word; }',
         '#tec-fabrica .tf-tree-leaf::before { content:""; display:inline-block; width:5px; height:5px; margin:0 7px 2px 0; border-radius:50%; background:#60a5fa; }',
         '@keyframes tf-tree-in { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:translateY(0); } }',
-        '@media (prefers-reduced-motion: reduce) { #tec-fabrica *, #tec-fabrica *::before, #tec-fabrica *::after { animation-duration:.01ms !important; transition-duration:.01ms !important; } }'
+        '@media (prefers-reduced-motion: reduce) { #tec-fabrica *, #tec-fabrica *::before, #tec-fabrica *::after { animation:none !important; animation-duration:.01ms !important; transition-duration:.01ms !important; } }'
     ].join('');
 
     function criarUI() {
@@ -3011,10 +3011,20 @@
         var p = estado.plano;
         var texto = PLANO_UI_MODEL.textoParaEdicao(estado);
         var arvore = PLANO_UI_MODEL.renderArvore(p);
+        var materias = p && Array.isArray(p.matters) ? p.matters : [];
+        var categorias = p ? PLANO_UI_MODEL.agruparPorCategoria(p) : [];
+        var assuntos = materias.reduce(function (total, materia) {
+            var codigos = Array.isArray(materia.subjectIds) ? materia.subjectIds.length : 0;
+            var caminhos = Array.isArray(materia.subjectPaths) ? materia.subjectPaths.length : 0;
+            return total + Math.max(codigos, caminhos);
+        }, 0);
+        function quantidade(quantidade, singular, plural) {
+            return quantidade + ' ' + (quantidade === 1 ? singular : plural);
+        }
         if (!p) arvore = '<div class="tf-vazio">Carregue um plano para visualizar a árvore.</div>';
-        var resumo = p ? '<div class="tf-resumo"><b>' + p.matters.length + '</b> matérias · ' + p.banks.length + ' bancas · ' + p.years.length + ' anos · ' +
-            (p.removeCancelled ? 'sem anuladas' : '') + (p.removeOutdated ? (p.removeCancelled ? ' e ' : '') + 'sem desatualizadas' : '') + '</div>' : '';
-        return '<label class="tf-secao-titulo" for="tf-plano-texto">Plano de matérias (JSON)</label>' +
+        var resumo = p ? '<div class="tf-resumo tf-plano-resumo"><b>' + escapeHtml(p.name || 'Plano sem nome') + '</b> · ' +
+            quantidade(materias.length, 'matéria', 'matérias') + ' · ' + quantidade(categorias.length, 'categoria', 'categorias') + ' · ' + quantidade(assuntos, 'assunto', 'assuntos') + '</div>' : '';
+        return resumo + '<label class="tf-secao-titulo" for="tf-plano-texto">Plano de matérias (JSON)</label>' +
             '<textarea id="tf-plano-texto" placeholder=\'Cole aqui o conteúdo do mapeamento_de_materias.json\n\nEx: {"materias": [{"titulo": "Classes de palavras", "materias_tecconcursos": [{"codigo": 12519, "materia": "Língua Portuguesa (Português) > Morfologia > Classes de Palavras"}]}]}\'>' + escapeHtml(texto) + '</textarea>' +
             '<div class="tf-linha" style="justify-content:flex-end">' +
             '  <button class="tf-btn" id="tf-carregar">Carregar plano</button>' +
