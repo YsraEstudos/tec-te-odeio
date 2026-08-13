@@ -14,9 +14,9 @@
     var abaAtiva = 'plano';
 
     var UI_CSS = [
-        '#tec-fabrica{position:fixed;top:70px;right:14px;z-index:999999;width:400px;max-height:88vh;display:flex;flex-direction:column;',
+        '#tec-fabrica{position:fixed;top:70px;right:10px;z-index:999999;width:min(400px,calc(100vw - 20px));max-height:min(88vh,720px);display:flex;flex-direction:column;',
         'background:#0b1120;color:#e5e7eb;border:1px solid #1e293b;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.55);',
-        'font:13px/1.5 system-ui,sans-serif;user-select:none;overflow:hidden}',
+        'font:13px/1.5 system-ui,sans-serif;font-family:"Fira Sans","Segoe UI",sans-serif;user-select:none;overflow:hidden}',
         '#tec-fabrica *{box-sizing:border-box}',
         '#tec-fabrica .tf-header{display:flex;align-items:center;gap:8px;padding:11px 14px;background:#111827;border-bottom:1px solid #1f2937}',
         '#tec-fabrica .tf-logo{width:9px;height:9px;border-radius:50%;background:#22c55e;flex:none}',
@@ -32,7 +32,7 @@
         '#tec-fabrica .tf-aba{flex:1;text-align:center;padding:6px 4px;border:none;background:none;color:#94a3b8;cursor:pointer;font-size:11.5px;border-radius:7px 7px 0 0;border-bottom:2px solid transparent}',
         '#tec-fabrica .tf-aba:hover{color:#e2e8f0}',
         '#tec-fabrica .tf-aba.ativa{color:#60a5fa;border-bottom-color:#3b82f6;background:#111827}',
-        '#tec-fabrica .tf-corpo{flex:1;overflow-y:auto;padding:12px}',
+        '#tec-fabrica .tf-corpo{flex:1;overflow-y:auto;overflow-x:hidden;padding:12px}',
         '#tec-fabrica .tf-secao-titulo{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:#64748b;margin:10px 0 6px}',
         '#tec-fabrica .tf-secao-titulo:first-child{margin-top:0}',
         '#tec-fabrica textarea{width:100%;min-height:110px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:8px;padding:8px;font:12px/1.45 ui-monospace,Consolas,monospace;resize:vertical}',
@@ -70,7 +70,23 @@
         '#tec-fabrica .tf-log .err{color:#f87171}',
         '#tec-fabrica ::-webkit-scrollbar{width:8px}',
         '#tec-fabrica ::-webkit-scrollbar-thumb{background:#334155;border-radius:99px}',
-        '#tec-fabrica .tf-vazio{color:#64748b;font-size:11.5px;text-align:center;padding:14px 0}'
+        '#tec-fabrica .tf-vazio{color:#64748b;font-size:11.5px;text-align:center;padding:14px 0}',
+        '#tec-fabrica .tf-plano-arvore { display:flex; flex-direction:column; gap:6px; margin-top:10px; overflow-x:hidden; }',
+        '#tec-fabrica .tf-tree-node { border:1px solid #1e293b; border-radius:9px; background:#0f172a; overflow:hidden; }',
+        '#tec-fabrica .tf-tree-node > summary { display:flex; align-items:center; gap:7px; min-height:38px; padding:8px 9px; color:#e2e8f0; cursor:pointer; list-style:none; user-select:none; word-break:break-word; }',
+        '#tec-fabrica .tf-tree-node > summary::-webkit-details-marker { display:none; }',
+        '#tec-fabrica .tf-tree-node > summary::before { content:""; width:7px; height:7px; flex:none; border-right:2px solid #60a5fa; border-bottom:2px solid #60a5fa; transform:rotate(-45deg); transition:transform 160ms ease; }',
+        '#tec-fabrica .tf-tree-node[open] > summary::before { transform:rotate(45deg); }',
+        '#tec-fabrica .tf-tree-node > summary:focus-visible { outline:2px solid #60a5fa; outline-offset:-2px; }',
+        '#tec-fabrica .tf-tree-node[open] > summary { background:#172554; }',
+        '#tec-fabrica .tf-tree-children { padding:0 7px 7px 16px; animation:tf-tree-in 220ms ease-out both; }',
+        '#tec-fabrica .tf-tree-node > .tf-tree-node { margin:0 7px 7px 16px; }',
+        '#tec-fabrica .tf-tree-label { flex:1; min-width:0; word-break:break-word; }',
+        '#tec-fabrica .tf-tree-count, #tec-fabrica .tf-tree-meta { margin-left:auto; color:#93c5fd; font-size:10.5px; font-weight:400; text-align:right; word-break:break-word; }',
+        '#tec-fabrica .tf-tree-leaf { padding:7px 9px 7px 25px; color:#cbd5e1; font-size:11.5px; line-height:1.4; border-top:1px solid #1e293b; word-break:break-word; }',
+        '#tec-fabrica .tf-tree-leaf::before { content:""; display:inline-block; width:5px; height:5px; margin:0 7px 2px 0; border-radius:50%; background:#60a5fa; }',
+        '@keyframes tf-tree-in { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:translateY(0); } }',
+        '@media (prefers-reduced-motion: reduce) { #tec-fabrica *, #tec-fabrica *::before, #tec-fabrica *::after { animation-duration:.01ms !important; transition-duration:.01ms !important; } }'
     ].join('');
 
     function criarUI() {
@@ -126,13 +142,17 @@
     /* ---- aba Plano ---- */
     function htmlPlano() {
         var p = estado.plano;
+        var texto = PLANO_UI_MODEL.textoParaEdicao(estado);
+        var arvore = PLANO_UI_MODEL.renderArvore(p);
+        if (!p) arvore = '<div class="tf-vazio">Carregue um plano para visualizar a árvore.</div>';
         var resumo = p ? '<div class="tf-resumo"><b>' + p.matters.length + '</b> matérias · ' + p.banks.length + ' bancas · ' + p.years.length + ' anos · ' +
             (p.removeCancelled ? 'sem anuladas' : '') + (p.removeOutdated ? (p.removeCancelled ? ' e ' : '') + 'sem desatualizadas' : '') + '</div>' : '';
-        return '<div class="tf-secao-titulo">Plano de matérias (JSON)</div>' +
-            '<textarea id="tf-plano-texto" placeholder=\'Cole aqui o conteúdo do mapeamento_de_materias.json\n\nEx: {"materias": [{"titulo": "Classes de palavras", "materias_tecconcursos": [{"codigo": 12519, "materia": "Língua Portuguesa (Português) > Morfologia > Classes de Palavras"}]}]}\'>' + (p ? '' : '') + '</textarea>' +
+        return '<label class="tf-secao-titulo" for="tf-plano-texto">Plano de matérias (JSON)</label>' +
+            '<textarea id="tf-plano-texto" placeholder=\'Cole aqui o conteúdo do mapeamento_de_materias.json\n\nEx: {"materias": [{"titulo": "Classes de palavras", "materias_tecconcursos": [{"codigo": 12519, "materia": "Língua Portuguesa (Português) > Morfologia > Classes de Palavras"}]}]}\'>' + escapeHtml(texto) + '</textarea>' +
             '<div class="tf-linha" style="justify-content:flex-end">' +
             '  <button class="tf-btn" id="tf-carregar">Carregar plano</button>' +
             '</div>' + resumo +
+            '<div class="tf-plano-arvore">' + arvore + '</div>' +
             '<div id="tf-plano-aviso"></div>';
     }
 
@@ -253,8 +273,7 @@
             var texto = corpo.querySelector('#tf-plano-texto').value;
             var aviso = corpo.querySelector('#tf-plano-aviso');
             try {
-                var plano = normalizarPlano(texto);
-                estado.plano = plano;
+                var plano = PLANO_UI_MODEL.carregarPlano(texto, normalizarPlano, estado);
                 if (!estado.config) {
                     estado.config = {
                         folderId: pastaIdDaUrl() || '',
@@ -269,8 +288,10 @@
                         years: CONFIG.years.slice()
                     };
                 }
-                salvarEstado();
-                aviso.innerHTML = '<div class="tf-resumo" style="border-color:#166534;background:#052e16;color:#bbf7d0">Plano carregado: <b>' + plano.matters.length + '</b> matérias</div>';
+                salvarEstado(true);
+                mostrarAba('plano');
+                var avisoAtual = painelEl.querySelector('#tf-plano-aviso');
+                avisoAtual.innerHTML = '<div class="tf-resumo" style="border-color:#166534;background:#052e16;color:#bbf7d0">Plano carregado: <b>' + plano.matters.length + '</b> matérias</div>';
                 log('Plano carregado: ' + plano.matters.length + ' matérias, ' + plano.banks.length + ' bancas, ' + plano.years.length + ' anos.');
             } catch (e) {
                 aviso.innerHTML = '<div class="tf-status-msg erro"><b>Erro ao carregar o plano:</b> ' + escapeHtml(e.message) + '</div>';
