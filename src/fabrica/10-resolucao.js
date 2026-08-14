@@ -131,9 +131,17 @@
                 var captchaAbertoAntes = false;
                 var inicioEspera = Date.now();
                 var CAPTCHA_MAX_ESPERA_MS = 180000;
+                var timeoutMaximo = CONFIG.loadTimeout + CAPTCHA_MAX_ESPERA_MS;
                 workerTick(CONFIG.pollInterval, function () {
                     if (estado.status !== 'rodando') return true;
 
+                    // 1. Prioridade absoluta: checar se a resolução já apareceu na tela
+                    var res = document.querySelector('.questao-enunciado-resolucao-errou, .questao-enunciado-resolucao-acertou, .questao-enunciado-mensagem-resolucao');
+                    if (res && /correta|acert|errou|Gabarito/i.test(res.innerText || '')) {
+                        return true;
+                    }
+
+                    // 2. Checagem de reCAPTCHA real
                     if (modalRecaptchaAberto()) {
                         captchaAbertoAntes = true;
                         if (!avisouCaptcha) {
@@ -150,6 +158,7 @@
                         return false;
                     }
 
+                    // 3. Transição de reCAPTCHA que acabou de ser resolvido/fechado
                     if (captchaAbertoAntes && avisouCaptcha) {
                         avisouCaptcha = false;
                         log('Modal de reCAPTCHA não está mais visível. Verificando resolução...', {
@@ -157,14 +166,6 @@
                             contexto: Object.assign({}, contextoBase, { motivo: 'recaptcha-fechado' })
                         });
                         UI.setStatus('Coletando questão ' + (questao.number || '') + '...');
-                    }
-
-                    var res = document.querySelector('.questao-enunciado-resolucao-errou, .questao-enunciado-resolucao-acertou, .questao-enunciado-mensagem-resolucao');
-                    if (res && /correta|acert|errou|Gabarito/i.test(res.innerText || '')) {
-                        return true;
-                    }
-
-                    if (captchaAbertoAntes && !modalRecaptchaAberto()) {
                         var btnReclique = Array.from(document.querySelectorAll('button')).find(function (b) {
                             return /RESOLVER QUEST[AÃ]O/i.test(b.innerText || '') && !b.disabled;
                         });
@@ -173,8 +174,13 @@
                         }
                     }
 
+                    // 4. Timeout normal para quando não houve reCAPTCHA
+                    if (!captchaAbertoAntes && (Date.now() - inicioEspera > (CONFIG.loadTimeout + 10000))) {
+                        return true;
+                    }
+
                     return false;
-                }, CONFIG.loadTimeout + (modalRecaptchaAberto() ? CAPTCHA_MAX_ESPERA_MS : 10000), function (ok) {
+                }, timeoutMaximo, function (ok) {
                     if (estado.status !== 'rodando') {
                         resolve(null);
                         return;
@@ -194,10 +200,10 @@
                         return;
                     }
 
-                    if (modalRecaptchaAberto()) {
+                    if (modalRecaptchaAberto() || (captchaAbertoAntes && !gab)) {
                         GabaritoInterceptor.estatisticas.semGabarito += 1;
                         GabaritoInterceptor.ultimoMetodo = 'recaptcha-pendente';
-                        log('Resolução não concluída: reCAPTCHA permaneceu aberto.', {
+                        log('Resolução não concluída: reCAPTCHA permaneceu aberto ou bloqueou a resposta.', {
                             tipo: 'resultado', nivel: 'warn', fase: 'resolvendo',
                             contexto: Object.assign({}, contextoBase, { metodo: 'recaptcha-pendente', gabarito: null })
                         });
@@ -205,7 +211,7 @@
                         return;
                     }
 
-                    if (!ok) {
+                    if (!ok || (Date.now() - inicioEspera > (CONFIG.loadTimeout + 10000))) {
                         GabaritoInterceptor.estatisticas.semGabarito += 1;
                         GabaritoInterceptor.ultimoMetodo = 'clique-timeout';
                         log('A resolução não apareceu dentro do tempo limite.', {

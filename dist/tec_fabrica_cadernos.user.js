@@ -385,8 +385,20 @@
                 return true;
             }
         }
-        var iframes = Array.from(document.querySelectorAll('iframe[src*="recaptcha/api2/anchor"], iframe[src*="recaptcha/api2/bframe"]')).filter(elementoVisivel);
-        if (iframes.length > 0) {
+        var bframes = Array.from(document.querySelectorAll('iframe[src*="recaptcha/api2/bframe"], iframe[src*="recaptcha/enterprise/bframe"]')).filter(function (ifr) {
+            if (!elementoVisivel(ifr)) return false;
+            if (typeof ifr.getBoundingClientRect === 'function') {
+                try {
+                    var r = ifr.getBoundingClientRect();
+                    if (r.width < 100 || r.height < 100) return false;
+                    if (r.bottom <= 0 || r.right <= 0) return false;
+                } catch (e) {
+                    return false;
+                }
+            }
+            return true;
+        });
+        if (bframes.length > 0) {
             return true;
         }
         return false;
@@ -821,6 +833,7 @@
     /* =====================================================================
      * ESTADO PERSISTENTE (retomável em qualquer fase)
      * =================================================================== */
+    var cicloExecucaoId = 0;
     /* =====================================================================
      * PERSISTÊNCIA INDEXEDDB V2
      * ---------------------------------------------------------------------
@@ -1692,9 +1705,17 @@
                 var captchaAbertoAntes = false;
                 var inicioEspera = Date.now();
                 var CAPTCHA_MAX_ESPERA_MS = 180000;
+                var timeoutMaximo = CONFIG.loadTimeout + CAPTCHA_MAX_ESPERA_MS;
                 workerTick(CONFIG.pollInterval, function () {
                     if (estado.status !== 'rodando') return true;
 
+                    // 1. Prioridade absoluta: checar se a resolução já apareceu na tela
+                    var res = document.querySelector('.questao-enunciado-resolucao-errou, .questao-enunciado-resolucao-acertou, .questao-enunciado-mensagem-resolucao');
+                    if (res && /correta|acert|errou|Gabarito/i.test(res.innerText || '')) {
+                        return true;
+                    }
+
+                    // 2. Checagem de reCAPTCHA real
                     if (modalRecaptchaAberto()) {
                         captchaAbertoAntes = true;
                         if (!avisouCaptcha) {
@@ -1711,6 +1732,7 @@
                         return false;
                     }
 
+                    // 3. Transição de reCAPTCHA que acabou de ser resolvido/fechado
                     if (captchaAbertoAntes && avisouCaptcha) {
                         avisouCaptcha = false;
                         log('Modal de reCAPTCHA não está mais visível. Verificando resolução...', {
@@ -1718,14 +1740,6 @@
                             contexto: Object.assign({}, contextoBase, { motivo: 'recaptcha-fechado' })
                         });
                         UI.setStatus('Coletando questão ' + (questao.number || '') + '...');
-                    }
-
-                    var res = document.querySelector('.questao-enunciado-resolucao-errou, .questao-enunciado-resolucao-acertou, .questao-enunciado-mensagem-resolucao');
-                    if (res && /correta|acert|errou|Gabarito/i.test(res.innerText || '')) {
-                        return true;
-                    }
-
-                    if (captchaAbertoAntes && !modalRecaptchaAberto()) {
                         var btnReclique = Array.from(document.querySelectorAll('button')).find(function (b) {
                             return /RESOLVER QUEST[AÃ]O/i.test(b.innerText || '') && !b.disabled;
                         });
@@ -1734,8 +1748,13 @@
                         }
                     }
 
+                    // 4. Timeout normal para quando não houve reCAPTCHA
+                    if (!captchaAbertoAntes && (Date.now() - inicioEspera > (CONFIG.loadTimeout + 10000))) {
+                        return true;
+                    }
+
                     return false;
-                }, CONFIG.loadTimeout + (modalRecaptchaAberto() ? CAPTCHA_MAX_ESPERA_MS : 10000), function (ok) {
+                }, timeoutMaximo, function (ok) {
                     if (estado.status !== 'rodando') {
                         resolve(null);
                         return;
@@ -1755,10 +1774,10 @@
                         return;
                     }
 
-                    if (modalRecaptchaAberto()) {
+                    if (modalRecaptchaAberto() || (captchaAbertoAntes && !gab)) {
                         GabaritoInterceptor.estatisticas.semGabarito += 1;
                         GabaritoInterceptor.ultimoMetodo = 'recaptcha-pendente';
-                        log('Resolução não concluída: reCAPTCHA permaneceu aberto.', {
+                        log('Resolução não concluída: reCAPTCHA permaneceu aberto ou bloqueou a resposta.', {
                             tipo: 'resultado', nivel: 'warn', fase: 'resolvendo',
                             contexto: Object.assign({}, contextoBase, { metodo: 'recaptcha-pendente', gabarito: null })
                         });
@@ -1766,7 +1785,7 @@
                         return;
                     }
 
-                    if (!ok) {
+                    if (!ok || (Date.now() - inicioEspera > (CONFIG.loadTimeout + 10000))) {
                         GabaritoInterceptor.estatisticas.semGabarito += 1;
                         GabaritoInterceptor.ultimoMetodo = 'clique-timeout';
                         log('A resolução não apareceu dentro do tempo limite.', {
@@ -2082,6 +2101,8 @@
      * =================================================================== */
     async function coletarCaderno(caderno) {
         // caderno = {id, titulo, total, questoes: [...]}
+        cicloExecucaoId += 1;
+        var meuCiclo = cicloExecucaoId;
         var colecao = caderno.questoes || [];
         indexarEstado(estado);
         var porId = questaoIdsPorCaderno.get(String(caderno.id)) || new Set();
@@ -2104,12 +2125,14 @@
             var assinaturaRetomada = assinaturaQuestao();
             if (!navegarQuestao(maxColetada)) throw new Error('Não consegui retomar a questão salva.');
             var retomadaOk = await new Promise(function (resolve) { aguardarQuestaoMudar(sentinelRetomada, assinaturaRetomada, resolve); });
+            if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
             log('Resultado da retomada da coleta.', {
                 tipo: 'resultado', nivel: retomadaOk ? 'ok' : 'erro', fase: 'coletando',
                 contexto: { cadernoId: caderno.id, numero: maxColetada, carregada: retomadaOk }
             });
             if (!retomadaOk) throw new Error('A questão salva não carregou a tempo.');
             await workerSleep(800);
+            if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
         } else if (maxColetada === 0 && posInicial && posInicial.posicao > 1) {
             UI.setStatus('Indo para a questão 1...');
             log('Decisão: nenhuma questão salva; voltando para a primeira questão.', {
@@ -2120,16 +2143,18 @@
             var assinaturaQ1 = assinaturaQuestao();
             if (!navegarQuestao(1)) throw new Error('Não consegui voltar para a primeira questão.');
             var q1Ok = await new Promise(function (resolve) { aguardarQuestaoMudar(sentinelQ1, assinaturaQ1, resolve); });
+            if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
             log('Resultado do retorno para a primeira questão.', {
                 tipo: 'resultado', nivel: q1Ok ? 'ok' : 'erro', fase: 'coletando',
                 contexto: { cadernoId: caderno.id, numero: 1, carregada: q1Ok }
             });
             if (!q1Ok) throw new Error('A primeira questão não carregou a tempo.');
             await workerSleep(800);
+            if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
         }
 
         while (true) {
-            if (estado.status !== 'rodando') return;
+            if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
             var inicioQuestao = Date.now();
             var questao = extrairQuestaoAtual();
             if (!questao || !questao.id) {
@@ -2138,6 +2163,7 @@
                     contexto: { cadernoId: caderno.id }
                 });
                 await workerSleep(1200);
+                if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
                 questao = extrairQuestaoAtual();
                 if (!questao || !questao.id) {
                     log('Falha definitiva ao extrair a questão atual.', {
@@ -2155,28 +2181,29 @@
                     contexto: { cadernoId: caderno.id, questaoId: questao.id, numero: questao.number, opcoes: questao.options.length }
                 });
                 var gabarito = await resolverParaGabarito(questao);
-                if (estado.status !== 'rodando') return;
+                if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
 
-                if (!gabarito && modalRecaptchaAberto()) {
-                    log('Coleta pausada: reCAPTCHA detectado e pendente de validação.', {
+                if (!gabarito) {
+                    var motivoFalha = GabaritoInterceptor.ultimoMetodo || (modalRecaptchaAberto() ? 'recaptcha-pendente' : 'sem-gabarito');
+                    log('Coleta pausada: gabarito não obtido para a questão.', {
                         tipo: 'resultado', nivel: 'warn', fase: 'coletando',
-                        contexto: { cadernoId: caderno.id, questaoId: questao.id, numero: questao.number }
+                        contexto: { cadernoId: caderno.id, questaoId: questao.id, numero: questao.number, motivo: motivoFalha }
                     });
                     parar();
-                    UI.setStatus('Pausado: resolva o reCAPTCHA na página e clique em Continuar.');
+                    UI.setStatus('Pausado na questão ' + (questao.number || '') + ': gabarito não obtido (' + motivoFalha + '). Verifique e clique em Continuar.');
                     return;
                 }
 
-                var answerSource = gabarito ? (GabaritoInterceptor.ultimoMetodo || 'resolucao') : (existente && existente.answerSource || 'nao-obtido');
+                var answerSource = GabaritoInterceptor.ultimoMetodo || 'resolucao';
                 if (existente) {
                     // atualiza apenas o que faltava (gabarito retentado)
-                    existente.answer = gabarito || existente.answer || '';
+                    existente.answer = gabarito;
                     existente.answerSource = answerSource;
                     if (!existente.statementHtml) existente.statementHtml = questao.statementHtml;
                     if (!existente.statement) existente.statement = questao.statement;
                     if (!existente.options.length) existente.options = questao.options;
                 } else {
-                    questao.answer = gabarito || '';
+                    questao.answer = gabarito;
                     questao.answerSource = answerSource;
                     colecao.push(questao);
                     porId.add(String(questao.id));
@@ -2188,12 +2215,12 @@
                 UI.renderBiblioteca();
                 UI.renderProgresso();
                 log('Resultado da questão salvo.', {
-                    tipo: 'resultado', nivel: gabarito ? 'ok' : 'warn', fase: 'coletando',
+                    tipo: 'resultado', nivel: 'ok', fase: 'coletando',
                     contexto: {
                         cadernoId: caderno.id,
                         questaoId: questao.id,
                         numero: questao.number,
-                        gabarito: gabarito || null,
+                        gabarito: gabarito,
                         answerSource: answerSource,
                         salvas: colecao.length,
                         duracaoMs: Date.now() - inicioQuestao
@@ -2226,11 +2253,12 @@
             caderno.total = total;
             if (pos.posicao >= total) break;
             await pausaAleatoria();
-            if (estado.status !== 'rodando') return;
+            if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
             var idAnterior = questao.id;
             var assinaturaAnterior = assinaturaQuestao();
             if (!navegarQuestao(pos.posicao + 1)) throw new Error('Não consegui navegar para a próxima questão.');
             var mudou = await new Promise(function (resolve) { aguardarQuestaoMudar(idAnterior, assinaturaAnterior, resolve); });
+            if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
             log('Resultado da navegação para a próxima questão.', {
                 tipo: 'resultado', nivel: mudou ? 'ok' : 'warn', fase: 'coletando',
                 contexto: { cadernoId: caderno.id, de: pos.posicao, para: pos.posicao + 1, carregada: mudou }
@@ -2244,6 +2272,7 @@
                 assinaturaAnterior = assinaturaQuestao();
                 if (!navegarQuestao(pos.posicao + 1)) throw new Error('Não consegui navegar para a próxima questão.');
                 mudou = await new Promise(function (resolve) { aguardarQuestaoMudar(idAnterior, assinaturaAnterior, resolve); });
+                if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
                 log('Resultado da segunda tentativa de navegação.', {
                     tipo: 'resultado', nivel: mudou ? 'ok' : 'erro', fase: 'coletando',
                     contexto: { cadernoId: caderno.id, para: pos.posicao + 1, carregada: mudou, tentativa: 2 }
@@ -2260,6 +2289,7 @@
         // Passadas de retry: questões que ficaram sem gabarito (ex: acertou ao marcar A)
         var passadas = 0;
         while (passadas < 2 && estado.status === 'rodando') {
+            if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
             var pendentes = colecao.filter(function (q) { return !q.answer; });
             if (!pendentes.length) break;
             passadas += 1;
@@ -2271,7 +2301,7 @@
             var idsPendentes = {};
             pendentes.forEach(function (q) { idsPendentes[q.id] = true; });
             for (var i = 0; i < colecao.length; i += 1) {
-                if (estado.status !== 'rodando') return;
+                if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
                 if (!idsPendentes[colecao[i].id]) continue;
                 var posAntes = lerPosicao();
                 var sentinelRetry = (posAntes && posAntes.posicao === colecao[i].number) ? '' : (lerQuestaoIdAtual() || '');
@@ -2284,6 +2314,7 @@
                     continue;
                 }
                 var retryCarregado = await new Promise(function (resolve) { aguardarQuestaoMudar(sentinelRetry, assinaturaRetry, resolve); });
+                if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
                 if (!retryCarregado) {
                     log('Retry não carregou a questão pendente a tempo.', {
                         tipo: 'resultado', nivel: 'warn', fase: 'coletando',
@@ -2292,6 +2323,7 @@
                     continue;
                 }
                 await workerSleep(500);
+                if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
                 var qRetry = extrairQuestaoAtual();
                 if (!qRetry) {
                     log('Retry não conseguiu extrair a questão pendente.', {
@@ -2301,15 +2333,18 @@
                     continue;
                 }
                 var gRetry = await resolverParaGabarito(qRetry);
-                if (estado.status !== 'rodando') return;
-                if (!gRetry && modalRecaptchaAberto()) {
-                    log('Retry pausado: reCAPTCHA detectado e pendente de validação.', {
+                if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
+                if (!gRetry) {
+                    var motivoRetry = GabaritoInterceptor.ultimoMetodo || (modalRecaptchaAberto() ? 'recaptcha-pendente' : 'sem-gabarito');
+                    log('Retry não obteve gabarito para a questão.', {
                         tipo: 'resultado', nivel: 'warn', fase: 'coletando',
-                        contexto: { cadernoId: caderno.id, questaoId: colecao[i].id, numero: colecao[i].number, passada: passadas }
+                        contexto: { cadernoId: caderno.id, questaoId: colecao[i].id, numero: colecao[i].number, motivo: motivoRetry, passada: passadas }
                     });
-                    parar();
-                    UI.setStatus('Pausado: resolva o reCAPTCHA na página e clique em Continuar.');
-                    return;
+                    if (motivoRetry === 'recaptcha-pendente' || modalRecaptchaAberto()) {
+                        parar();
+                        UI.setStatus('Pausado: resolva o reCAPTCHA na página e clique em Continuar.');
+                        return;
+                    }
                 }
                 if (gRetry) {
                     colecao[i].answer = gRetry;
@@ -2320,13 +2355,9 @@
                         tipo: 'resultado', nivel: 'ok', fase: 'coletando',
                         contexto: { cadernoId: caderno.id, questaoId: colecao[i].id, numero: colecao[i].number, gabarito: gRetry, answerSource: colecao[i].answerSource, passada: passadas, salvas: colecao.length }
                     });
-                } else {
-                    log('Retry terminou sem gabarito para a questão.', {
-                        tipo: 'resultado', nivel: 'warn', fase: 'coletando',
-                        contexto: { cadernoId: caderno.id, questaoId: colecao[i].id, numero: colecao[i].number, gabarito: null, passada: passadas }
-                    });
                 }
                 await pausaAleatoria();
+                if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
             }
         }
         caderno.totalConfirmado = true;
@@ -2567,7 +2598,9 @@
             UI.renderProgresso();
             try {
                 await coletarCaderno(existente); // SPA: sem navegação completa
-                avancarMateria();
+                if (estado.status === 'rodando' && existente.completo) {
+                    avancarMateria();
+                }
             } catch (e) {
                 estado.status = 'erro';
                 estado.erro = String(e && e.message || e);
@@ -2758,6 +2791,7 @@
             return;
         }
         cancelarAutoResumir();
+        cicloExecucaoId += 1;
         if (typeof Scheduler !== 'undefined' && typeof Scheduler.limpar === 'function') {
             Scheduler.limpar();
         }
@@ -2778,6 +2812,7 @@
 
     function parar() {
         cancelarAutoResumir();
+        cicloExecucaoId += 1;
         if (typeof Scheduler !== 'undefined' && typeof Scheduler.limpar === 'function') {
             Scheduler.limpar();
         }
@@ -2802,6 +2837,7 @@
             return;
         }
         cancelarAutoResumir();
+        cicloExecucaoId += 1;
         if (typeof Scheduler !== 'undefined' && typeof Scheduler.limpar === 'function') {
             Scheduler.limpar();
         }

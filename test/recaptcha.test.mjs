@@ -69,4 +69,50 @@ test('modalRecaptchaAberto ignora containers e iframes ocultos', () => {
   };
   const ctxVisivel = factory(mockDocVisivel, { getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }) });
   assert.equal(ctxVisivel.modalRecaptchaAberto(), true);
+
+  // Caso 4: Iframe anchor permanente do Google no DOM (NÃO deve ser considerado modal aberto)
+  const mockDocAnchor = {
+    getElementById: () => null,
+    querySelectorAll: (sel) => {
+      if (sel.includes('recaptcha/api2/bframe')) return [];
+      if (sel.includes('.modal')) return [];
+      return [];
+    }
+  };
+  const ctxAnchor = factory(mockDocAnchor, { getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }) });
+  assert.equal(ctxAnchor.modalRecaptchaAberto(), false);
+
+  // Caso 5: Iframe bframe ativo de desafio com dimensões reais
+  const mockDocBframeAtivo = {
+    getElementById: () => null,
+    querySelectorAll: (sel) => {
+      if (sel.includes('recaptcha/api2/bframe')) {
+        return [{
+          offsetParent: {},
+          style: { display: 'block' },
+          getBoundingClientRect: () => ({ width: 400, height: 580, bottom: 600, right: 500 })
+        }];
+      }
+      return [];
+    }
+  };
+  const ctxBframeAtivo = factory(mockDocBframeAtivo, { getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }) });
+  assert.equal(ctxBframeAtivo.modalRecaptchaAberto(), true);
+
+  // Caso 6: Iframe bframe inativo ou com dimensões zeradas
+  const mockDocBframeInativo = {
+    getElementById: () => null,
+    querySelectorAll: (sel) => {
+      if (sel.includes('recaptcha/api2/bframe')) {
+        return [{
+          offsetParent: {},
+          style: { display: 'block' },
+          getBoundingClientRect: () => ({ width: 0, height: 0, bottom: 0, right: 0 })
+        }];
+      }
+      return [];
+    }
+  };
+  const ctxBframeInativo = factory(mockDocBframeInativo, { getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }) });
+  assert.equal(ctxBframeInativo.modalRecaptchaAberto(), false);
 });

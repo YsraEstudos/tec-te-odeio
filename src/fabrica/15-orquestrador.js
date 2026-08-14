@@ -226,7 +226,9 @@
             UI.renderProgresso();
             try {
                 await coletarCaderno(existente); // SPA: sem navegação completa
-                avancarMateria();
+                if (estado.status === 'rodando' && existente.completo) {
+                    avancarMateria();
+                }
             } catch (e) {
                 estado.status = 'erro';
                 estado.erro = String(e && e.message || e);
@@ -417,6 +419,7 @@
             return;
         }
         cancelarAutoResumir();
+        cicloExecucaoId += 1;
         if (typeof Scheduler !== 'undefined' && typeof Scheduler.limpar === 'function') {
             Scheduler.limpar();
         }
@@ -437,6 +440,7 @@
 
     function parar() {
         cancelarAutoResumir();
+        cicloExecucaoId += 1;
         if (typeof Scheduler !== 'undefined' && typeof Scheduler.limpar === 'function') {
             Scheduler.limpar();
         }
@@ -461,6 +465,7 @@
             return;
         }
         cancelarAutoResumir();
+        cicloExecucaoId += 1;
         if (typeof Scheduler !== 'undefined' && typeof Scheduler.limpar === 'function') {
             Scheduler.limpar();
         }

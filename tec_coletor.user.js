@@ -452,8 +452,20 @@
                 return true;
             }
         }
-        var iframes = Array.from(document.querySelectorAll('iframe[src*="recaptcha/api2/anchor"], iframe[src*="recaptcha/api2/bframe"]')).filter(elementoVisivel);
-        if (iframes.length > 0) {
+        var bframes = Array.from(document.querySelectorAll('iframe[src*="recaptcha/api2/bframe"], iframe[src*="recaptcha/enterprise/bframe"]')).filter(function (ifr) {
+            if (!elementoVisivel(ifr)) return false;
+            if (typeof ifr.getBoundingClientRect === 'function') {
+                try {
+                    var r = ifr.getBoundingClientRect();
+                    if (r.width < 100 || r.height < 100) return false;
+                    if (r.bottom <= 0 || r.right <= 0) return false;
+                } catch (e) {
+                    return false;
+                }
+            }
+            return true;
+        });
+        if (bframes.length > 0) {
             return true;
         }
         return false;
