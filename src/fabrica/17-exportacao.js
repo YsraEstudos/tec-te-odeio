@@ -82,6 +82,16 @@
         });
     }
 
+    function filterQuestionsByMetadata(questions, filters) {
+        var source = filters || {};
+        var year = String(source.year == null ? '' : source.year);
+        var vacancy = String(source.vacancy == null ? '' : source.vacancy);
+        return (questions || []).filter(function (question) {
+            return (!year || String(question && question.year == null ? '' : question.year) === year) &&
+                (!vacancy || String(question && question.vacancy == null ? '' : question.vacancy) === vacancy);
+        });
+    }
+
     function formatQuestionAsTxt(question, index) {
         var number = question && question.number != null && question.number !== '' ? question.number : index + 1;
         var lines = [String(number) + '. ' + String(question && question.statement || '')];
@@ -198,6 +208,7 @@
   }
   ${normalizeExportFilters.toString()}
   ${filterExportQuestions.toString()}
+  ${filterQuestionsByMetadata.toString()}
   ${formatQuestionAsTxt.toString()}
   ${buildTxtExport.toString()}
   ${escapeHtml.toString()}
@@ -216,8 +227,9 @@
     });
   }
   function visibleQuestions(currentFilters) {
-    return filterExportQuestions(data.questions, currentFilters || exportFilters()).filter(function (question) {
-      return (!document.getElementById("year").value || String(question.year || "") === document.getElementById("year").value) && (!document.getElementById("vacancy").value || question.vacancy === document.getElementById("vacancy").value);
+    return filterQuestionsByMetadata(filterExportQuestions(data.questions, currentFilters || exportFilters()), {
+      year: document.getElementById("year").value,
+      vacancy: document.getElementById("vacancy").value
     });
   }
   function render() {
@@ -306,7 +318,7 @@
   document.querySelector(".controls").addEventListener("click", function (event) { var clear = event.target.closest("[data-clear-filter]"); if (!clear) return; var control = document.querySelector('[data-filter="' + clear.getAttribute("data-clear-filter") + '"]'); if (control) Array.from(control.options).forEach(function (option) { option.selected = false; }); resetIndex(); });
   document.getElementById("newAttempt").onclick = function () { state.attempts.push({ id: "tentativa-" + (state.attempts.length + 1), createdAt: new Date().toISOString(), answers: {}, eliminated: {} }); state.activeAttempt = state.attempts.length - 1; write(); render(); };
   document.getElementById("saveHtml").onclick = function () { write(); var blob = new Blob([document.documentElement.outerHTML], { type: "text/html;charset=utf-8" }); var url = URL.createObjectURL(blob); var anchor = document.createElement("a"); anchor.href = url; anchor.download = downloadName; anchor.click(); setTimeout(function () { URL.revokeObjectURL(url); }, 60000); };
-  document.getElementById("downloadTxt").onclick = function () { var currentFilters = exportFilters(); var questions = filterExportQuestions(data.questions, currentFilters).filter(function (question) { return (!document.getElementById("year").value || String(question.year || "") === document.getElementById("year").value) && (!document.getElementById("vacancy").value || question.vacancy === document.getElementById("vacancy").value); }); baixarBlob((data.title || data.code || "caderno") + "-filtrado.txt", new Blob([buildTxtExport(questions, data)], { type: "text/plain;charset=utf-8" })); document.getElementById("status").textContent = questions.length + " questão(ões) filtrada(s) exportada(s) em TXT"; };
+  document.getElementById("downloadTxt").onclick = function () { var currentFilters = exportFilters(); var questions = visibleQuestions(currentFilters); baixarBlob((data.title || data.code || "caderno") + "-filtrado.txt", new Blob([buildTxtExport(questions, data)], { type: "text/plain;charset=utf-8" })); document.getElementById("status").textContent = questions.length + " questão(ões) filtrada(s) exportada(s) em TXT"; };
   document.getElementById("downloadPdf").onclick = function () { var currentFilters = exportFilters(); var questions = visibleQuestions(currentFilters); abrirVisualizacaoImpressao(questions, data, function () { document.getElementById("status").textContent = "Não foi possível abrir a visualização de impressão."; }); };
   fillFilters();
   render();
@@ -702,6 +714,7 @@
     var __TecFabricaExport = {
         normalizeExportFilters: normalizeExportFilters,
         filterExportQuestions: filterExportQuestions,
+        filterQuestionsByMetadata: filterQuestionsByMetadata,
         formatQuestionAsTxt: formatQuestionAsTxt,
         buildTxtExport: buildTxtExport,
         buildPrintHtml: buildPrintHtml,

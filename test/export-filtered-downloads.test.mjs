@@ -137,7 +137,7 @@ test('HTML interativo oferece download TXT aplicado às questões filtradas', ()
   });
 
   assert.match(html, /id="downloadTxt"/);
-  assert.match(html, /filterExportQuestions\(data\.questions, currentFilters\)/);
+  assert.match(html, /visibleQuestions\(currentFilters\)/);
   assert.match(html, /baixarBlob\(/);
   assert.match(html, /text\/plain;charset=utf-8/);
   assert.match(html, /questão\(ões\) filtrada\(s\)/);
