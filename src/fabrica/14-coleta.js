@@ -1,6 +1,24 @@
     /* =====================================================================
      * ENGINE — COLETA (copia cada questão com gabarito)
      * =================================================================== */
+    function aguardarQuestaoPronta(timeoutMs) {
+        return new Promise(function (resolve) {
+            workerTick(CONFIG.pollInterval, function () {
+                if (estado.status !== 'rodando') return true;
+                var art = document.querySelector('article.questao-enunciado');
+                var h1 = document.querySelector('h1');
+                var idm = h1 ? (h1.textContent || '').match(/#(\d+)/) : null;
+                var pos = lerPosicao();
+                if (art && idm && idm[1] && pos && pos.posicao && questaoConteudoPronta()) {
+                    return true;
+                }
+                return false;
+            }, timeoutMs || (CONFIG.loadTimeout + 15000), function (ok) {
+                resolve(ok);
+            });
+        });
+    }
+
     async function coletarCaderno(caderno) {
         // caderno = {id, titulo, total, questoes: [...]}
         cicloExecucaoId += 1;
@@ -12,6 +30,17 @@
             tipo: 'observacao', fase: 'coletando',
             contexto: { cadernoId: caderno.id, titulo: caderno.titulo, salvas: colecao.length, total: caderno.total || null }
         });
+
+        UI.setStatus('Aguardando carregamento da questão...');
+        var prontaInicial = await aguardarQuestaoPronta(CONFIG.loadTimeout + 15000);
+        if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
+        if (!prontaInicial) {
+            log('A questão inicial do caderno não carregou no tempo limite.', {
+                tipo: 'erro', nivel: 'erro', fase: 'coletando',
+                contexto: { cadernoId: caderno.id }
+            });
+            throw new Error('A página do caderno não carregou a questão a tempo.');
+        }
 
         // Começa de onde a coleta parou (retomada) ou da questão 1
         var maxColetada = 0;
@@ -59,15 +88,17 @@
             if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
             var inicioQuestao = Date.now();
             var questao = extrairQuestaoAtual();
-            if (!questao || !questao.id) {
+            if (!questao || !questao.id || !questao.number) {
                 log('Extração inicial sem questão; aguardando o DOM e tentando novamente.', {
                     tipo: 'tentativa', nivel: 'warn', fase: 'coletando',
                     contexto: { cadernoId: caderno.id }
                 });
-                await workerSleep(1200);
+                var carregouNoLoop = await aguardarQuestaoPronta(CONFIG.loadTimeout + 10000);
                 if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
-                questao = extrairQuestaoAtual();
-                if (!questao || !questao.id) {
+                if (carregouNoLoop) {
+                    questao = extrairQuestaoAtual();
+                }
+                if (!questao || !questao.id || !questao.number) {
                     log('Falha definitiva ao extrair a questão atual.', {
                         tipo: 'erro', nivel: 'erro', fase: 'coletando',
                         contexto: { cadernoId: caderno.id, salvas: colecao.length }

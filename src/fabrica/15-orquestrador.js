@@ -135,23 +135,11 @@
     function abrirCadernoEncontradoNaPasta(link, idCaderno) {
         var url = urlCaderno(idCaderno);
         if (!registrarTransicaoPastaCaderno(idCaderno)) return;
-        var clicado = clicarCadernoNaPasta(link);
         log('Abertura do caderno existente solicitada.', {
-            tipo: 'resultado', nivel: clicado ? 'ok' : 'warn', fase: 'pasta-check',
-            contexto: { cadernoId: String(idCaderno), metodo: clicado ? 'linha-ou-link' : 'url-fallback' }
+            tipo: 'resultado', nivel: 'ok', fase: 'pasta-check',
+            contexto: { cadernoId: String(idCaderno), metodo: 'irPara' }
         });
-        if (!clicado) {
-            irPara(url);
-            return;
-        }
-        setTimeout(function () {
-            if (location.href.split('?')[0] === url.split('?')[0]) return;
-            log('Clique do caderno não mudou a rota; usando fallback por URL.', {
-                tipo: 'tentativa', nivel: 'warn', fase: 'pasta-check',
-                contexto: { cadernoId: String(idCaderno), metodo: 'url-fallback' }
-            });
-            irPara(url);
-        }, 700);
+        irPara(url);
     }
 
     function avancarMateria() {
@@ -187,9 +175,14 @@
 
         var materia = plano.matters[estado.planIndex];
         var idCadernoRota = paginaAtual() === 'caderno' ? cadernoIdDaUrl() : '';
-        var existente = (idCadernoRota && estado.biblioteca[idCadernoRota] && normalizarTituloCaderno(estado.biblioteca[idCadernoRota].titulo) === normalizarTituloCaderno(materia.title))
-            ? estado.biblioteca[idCadernoRota]
-            : acharCadernoPorTitulo(materia.title);
+        var existente = null;
+        if (idCadernoRota && estado.biblioteca[idCadernoRota]) {
+            existente = estado.biblioteca[idCadernoRota];
+        } else if (idCadernoRota && estado.cadernoAtual && String(estado.cadernoAtual.id) === String(idCadernoRota)) {
+            existente = estado.cadernoAtual;
+        } else {
+            existente = acharCadernoPorTitulo(materia.title);
+        }
 
         log('Avaliando próxima matéria do plano.', {
             tipo: 'observacao', fase: estado.fase || 'nenhuma',

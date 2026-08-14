@@ -35,3 +35,13 @@ test('caderno da rota tem prioridade para recuperar estado após reload', () => 
   assert.match(orchestratorSource, /var idCadernoRota = paginaAtual\(\) === 'caderno' \? cadernoIdDaUrl\(\) : ''/);
   assert.match(orchestratorSource, /estado\.biblioteca\[idCadernoRota\]/);
 });
+
+test('abrirCadernoEncontradoNaPasta utiliza irPara para garantir recarregamento e auto-resumo', () => {
+  assert.match(orchestratorSource, /function abrirCadernoEncontradoNaPasta\(link, idCaderno\) \{[\s\S]*?irPara\(url\);/);
+});
+
+test('coleta aguarda carregamento assíncrono do DOM com aguardarQuestaoPronta', () => {
+  const coletaSource = readFileSync(resolve(root, 'src/fabrica/14-coleta.js'), 'utf8');
+  assert.match(coletaSource, /function aguardarQuestaoPronta\(timeoutMs\)/);
+  assert.match(coletaSource, /await aguardarQuestaoPronta\(CONFIG\.loadTimeout \+ 15000\)/);
+});

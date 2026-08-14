@@ -141,12 +141,18 @@
     }
 
     function lerPosicao() {
-        var cont = document.querySelector('.questao-cabecalho-informacoes-numero');
+        var cont = document.querySelector('.questao-cabecalho-informacoes-numero') ||
+                   document.querySelector('.questao-cabecalho-informacoes') ||
+                   document.querySelector('.questao-cabecalho');
         if (!cont) {
-            log('Posição da questão ainda não está disponível no DOM.', {
-                tipo: 'observacao', nivel: 'warn', fase: 'coletando',
-                contexto: { resultado: 'elemento-ausente' }
+            var candidatos = Array.from(document.querySelectorAll('div, span, p')).filter(function (el) {
+                return /Quest[aã]o\s+[\d.,\s]+\s+de\s+[\d.,\s]+/i.test(el.textContent || '');
             });
+            if (candidatos.length > 0) {
+                cont = candidatos[0];
+            }
+        }
+        if (!cont) {
             return null;
         }
         var texto = String(cont.textContent || '')
@@ -157,10 +163,6 @@
         var posicao = m ? normalizarNumeroInterface(m[1]) : null;
         var total = m ? normalizarNumeroInterface(m[2]) : null;
         if (!posicao || !total) {
-            log('Posição da questão não pôde ser interpretada.', {
-                tipo: 'observacao', nivel: 'warn', fase: 'coletando',
-                contexto: { resultado: 'texto-incompativel', textoCabecalho: texto }
-            });
             return null;
         }
         return { posicao: posicao, total: total };
