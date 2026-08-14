@@ -102,6 +102,17 @@ test('gera visualização de impressão somente com questões filtradas e texto 
   assert.doesNotMatch(html, /<button|aria-pressed|Responder|feedback/);
 });
 
+test('sanitiza statementHtml adulterado sem remover formatação segura da impressão', () => {
+  const exp = loadExport();
+  const html = exp.buildPrintHtml([{
+    number: 1,
+    statementHtml: '<p onclick="alert(1)">Texto <strong>formatado</strong><img src="figura.png" onerror="alert(2)"><a href="javascript:alert(3)" onmouseover="alert(4)">link</a></p><script>alert(5)</script>',
+  }], { title: 'Revisão' });
+
+  assert.match(html, /<p\s*>Texto <strong>formatado<\/strong><img src="figura\.png"\s*><a\s*>link<\/a><\/p>/);
+  assert.doesNotMatch(html, /<script|on(?:click|error|mouseover)\s*=|javascript:/i);
+});
+
 test('HTML interativo oferece download TXT aplicado às questões filtradas', () => {
   const exp = loadExport();
   const html = exp.buildInteractiveHtml({

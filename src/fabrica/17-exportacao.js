@@ -104,6 +104,14 @@
         return (title ? String(title) + '\n\n' : '') + sections.join('\n\n') + (sections.length ? '\n' : '');
     }
 
+    function sanitizePrintStatementHtml(value) {
+        var html = String(value == null ? '' : value);
+        html = html.replace(/<script\b[^>]*>[\s\S]*?(?:<\/script\s*>|$)/gi, '');
+        html = html.replace(/<\/?(?:iframe|object|embed|base|meta|link|style)\b[^>]*>/gi, '');
+        html = html.replace(/([\s/])on[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '$1');
+        return html.replace(/\s(?:href|src|xlink:href)\s*=\s*(?:"\s*javascript:[^"]*"|'\s*javascript:[^']*'|\s*javascript:[^\s>]+)/gi, '');
+    }
+
     function buildPrintHtml(questions, entry) {
         var title = entry && (entry.title || entry.code) || 'Caderno';
         var cards = (questions || []).map(function (question, index) {
@@ -117,7 +125,7 @@
             ].filter(function (field) { return field[1]; }).map(function (field) {
                 return '<span><strong>' + escapeHtml(field[0]) + ':</strong> ' + escapeHtml(field[1]) + '</span>';
             }).join('');
-            var statement = question && question.statementHtml || ('<p>' + escapeHtml(question && question.statement) + '</p>');
+            var statement = question && question.statementHtml ? sanitizePrintStatementHtml(question.statementHtml) : ('<p>' + escapeHtml(question && question.statement) + '</p>');
             var options = (question && question.options || []).map(function (option) {
                 return '<li><strong>' + escapeHtml(option && option.letter) + ')</strong> ' + escapeHtml(option && option.text) + '</li>';
             }).join('');
@@ -161,6 +169,7 @@
   ${formatQuestionAsTxt.toString()}
   ${buildTxtExport.toString()}
   ${escapeHtml.toString()}
+  ${sanitizePrintStatementHtml.toString()}
   ${buildPrintHtml.toString()}
   ${baixarBlob.toString()}
   function exportFilters() {
