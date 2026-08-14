@@ -54,3 +54,44 @@ test('trata filtros vazios como todos e desconhecidos como nenhum resultado', ()
   assert.deepEqual(Array.from(exp.filterExportQuestions(questions, { subjects: ['Inexistente'], banks: [] })), []);
   assert.deepEqual(Array.from(exp.filterExportQuestions(questions, { subjects: [], banks: ['CESPE'] })), []);
 });
+
+test('gera TXT filtrado com metadados e todas as alternativas sem exigir gabarito', () => {
+  const exp = loadExport();
+  const entry = { title: 'Caderno de revisão' };
+  const filtered = exp.filterExportQuestions([
+    {
+      id: 'q-10', number: 10, subject: 'Direito Constitucional', topic: 'Direitos fundamentais', bank: 'Cebraspe',
+      statement: 'Julgue o item 10.', answer: '',
+      options: [{ letter: 'C', text: 'Certo' }, { letter: 'E', text: 'Errado' }],
+    },
+    {
+      id: 'q-11', number: 11, subject: 'Direito Penal', topic: 'Crimes', bank: 'FGV',
+      statement: 'Questão que não deve ser exportada.', options: [{ letter: 'A', text: 'Excluir' }],
+    },
+  ], { subjects: ['Direito Constitucional'], banks: ['Cebraspe'] });
+
+  const text = exp.buildTxtExport(filtered, entry);
+
+  assert.match(text, /10\.\s+Julgue o item 10\./);
+  assert.match(text, /Matéria:\s+Direito Constitucional/);
+  assert.match(text, /Assunto:\s+Direitos fundamentais/);
+  assert.match(text, /Banca:\s+Cebraspe/);
+  assert.match(text, /C\)\s+Certo/);
+  assert.match(text, /E\)\s+Errado/);
+  assert.doesNotMatch(text, /q-11|Questão que não deve ser exportada|Excluir/);
+  assert.doesNotMatch(text, /Gabarito|Resposta correta/);
+});
+
+test('HTML interativo oferece download TXT aplicado às questões filtradas', () => {
+  const exp = loadExport();
+  const html = exp.buildInteractiveHtml({
+    id: 'caderno-1', code: 'caderno-1', title: 'Revisão',
+    questions: [{ id: 'q-1', number: 1, subject: 'Português', bank: 'FCC', statement: 'Enunciado', options: [{ letter: 'C', text: 'Certo' }, { letter: 'E', text: 'Errado' }] }],
+  });
+
+  assert.match(html, /id="downloadTxt"/);
+  assert.match(html, /filterExportQuestions\(data\.questions, currentFilters\)/);
+  assert.match(html, /baixarBlob\(/);
+  assert.match(html, /text\/plain;charset=utf-8/);
+  assert.match(html, /questão\(ões\) filtrada\(s\)/);
+});
