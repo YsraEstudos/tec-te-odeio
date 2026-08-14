@@ -222,6 +222,9 @@
             '<div class="tf-linha"><input type="checkbox" id="tf-anuladas" ' + ((c.removeCancelled !== false) ? 'checked' : '') + '><label>Remover questões anuladas</label></div>' +
             '<div class="tf-linha"><input type="checkbox" id="tf-desatualizadas" ' + ((c.removeOutdated !== false) ? 'checked' : '') + '><label>Remover questões desatualizadas</label></div>' +
             '<div class="tf-linha"><input type="checkbox" id="tf-clique-gabarito" ' + ((c.usarCliqueGabarito !== false) ? 'checked' : '') + '><label>Clique para obter gabarito (necessário em questões novas)</label></div>' +
+            '<div class="tf-secao-titulo">Modo de coleta</div>' +
+            '<div class="tf-linha"><select id="tf-modo-coleta"><option value="com-gabarito"' + (c.modoColeta === 'sem-gabarito-manual' ? '' : ' selected') + '>Com gabarito</option><option value="sem-gabarito-manual"' + (c.modoColeta === 'sem-gabarito-manual' ? ' selected' : '') + '>Manual/offline — sem gabarito</option></select></div>' +
+            '<div class="tf-resumo">Manual/offline — sem gabarito salva somente a questão atualmente visível; não executa cliques automáticos nem navegação.</div>' +
             '<div class="tf-secao-titulo">Bancas (uma por linha)</div>' +
             '<textarea id="tf-bancas" style="min-height:80px">' + (c.banks || CONFIG.banks).join('\n') + '</textarea>' +
             '<div class="tf-secao-titulo">Anos (separados por vírgula)</div>' +
@@ -274,8 +277,11 @@
     function htmlBiblioteca() {
         var cats = cadernosPorCategoria();
         var nomes = Object.keys(cats).sort(function (a, b) { return a.localeCompare(b, 'pt-BR'); });
-        if (!nomes.length) return '<div class="tf-vazio">Nenhum caderno criado ainda. Rode o plano ou clique em Copiar dentro de um caderno.</div>';
-        return nomes.map(function (cat) {
+        var salvarAtual = estado.config && estado.config.modoColeta === 'sem-gabarito-manual' && paginaAtual() === 'caderno' && document.querySelector('article.questao-enunciado')
+            ? '<div class="tf-resumo"><b>Manual/offline — sem gabarito</b><br>Salva somente a questão atualmente visível; não executa cliques automáticos nem navegação.<br><button class="tf-btn sec" data-acao="salvar-sem-gabarito">Salvar questão sem gabarito</button></div>'
+            : '';
+        if (!nomes.length) return salvarAtual + '<div class="tf-vazio">Nenhum caderno criado ainda. Rode o plano ou clique em Copiar dentro de um caderno.</div>';
+        return salvarAtual + nomes.map(function (cat) {
             var lista = cats[cat];
             var totalQ = lista.reduce(function (s, c) { return s + (c.questoes ? c.questoes.length : 0); }, 0);
             var completos = lista.filter(function (c) { return c.completo; }).length;
@@ -397,6 +403,7 @@
                 cfg.removeCancelled = corpo.querySelector('#tf-anuladas').checked;
                 cfg.removeOutdated = corpo.querySelector('#tf-desatualizadas').checked;
                 cfg.usarCliqueGabarito = corpo.querySelector('#tf-clique-gabarito').checked;
+                cfg.modoColeta = corpo.querySelector('#tf-modo-coleta').value === 'sem-gabarito-manual' ? 'sem-gabarito-manual' : 'com-gabarito';
                 cfg.banks = corpo.querySelector('#tf-bancas').value.split('\n').map(clean).filter(Boolean);
                 cfg.years = corpo.querySelector('#tf-anos').value.split(',').map(function (y) { return parseInt(y, 10); }).filter(function (y) { return y >= 1900 && y <= 2100; });
                 if (cfg.banks.length < 1) throw new Error('Informe ao menos uma banca.');
@@ -463,6 +470,22 @@
         corpo.querySelectorAll('[data-acao]').forEach(function (b) {
             b.addEventListener('click', function () {
                 var acao = b.getAttribute('data-acao');
+                if (acao === 'salvar-sem-gabarito') {
+                    var cadernoAtual = estado.biblioteca[cadernoIdDaUrl()];
+                    if (!cadernoAtual) {
+                        UI.setStatus('Caderno atual não encontrado na biblioteca.');
+                        return;
+                    }
+                    try {
+                        salvarQuestaoAtualSemGabarito(cadernoAtual);
+                        UI.renderBiblioteca();
+                        UI.renderProgresso();
+                        UI.setStatus('Questão salva sem gabarito.');
+                    } catch (e) {
+                        UI.setStatus(String(e && e.message || e));
+                    }
+                    return;
+                }
                 if (acao === 'categoria') {
                     var cat = b.getAttribute('data-cat');
                     exportarCategoria(cat);
@@ -477,6 +500,21 @@
                 else if (acao === 'json') baixarJsonCaderno(caderno);
             });
         });
+    }
+
+    function salvarQuestaoAtualSemGabarito(caderno) {
+        var questao = extrairQuestaoAtual();
+        if (!questao || !questao.id || !questao.number) throw new Error('Não consegui extrair a questão atualmente visível.');
+        var questaoSemGabarito = Object.assign({}, questao, { answer: '', answerSource: 'nao-aplicavel' });
+        var questoes = Array.isArray(caderno.questoes) ? caderno.questoes : [];
+        var indice = questoes.findIndex(function (item) { return String(item && item.id) === String(questaoSemGabarito.id); });
+        if (indice >= 0) questoes[indice] = questaoSemGabarito;
+        else questoes.push(questaoSemGabarito);
+        caderno.questoes = questoes;
+        caderno.coletadas = questoes.length;
+        estado.biblioteca[caderno.id] = caderno;
+        salvarEstado(true);
+        return { saved: true, questionId: questaoSemGabarito.id, number: questaoSemGabarito.number };
     }
 
     /* Copiar sob demanda (botão da biblioteca): navega até o caderno e coleta.

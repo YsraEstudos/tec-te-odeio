@@ -93,6 +93,8 @@
 
     function normalizarEstadoPersistido(valor) {
         if (!valor || typeof valor !== 'object') return valor;
+        valor.config = valor.config && typeof valor.config === 'object' ? valor.config : {};
+        if (valor.config.modoColeta !== 'sem-gabarito-manual') valor.config.modoColeta = 'com-gabarito';
         if (typeof normalizarControleResolucoesDiarias === 'function') {
             normalizarControleResolucoesDiarias(valor);
         }

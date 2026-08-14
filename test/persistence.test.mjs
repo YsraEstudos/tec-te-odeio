@@ -107,6 +107,7 @@ test('parser de migração aceita JSON v1 válido e rejeita inválido', () => {
   const valid = { biblioteca: { c1: { id: 'c1', questoes: [] } } };
   assert.deepEqual(JSON.parse(JSON.stringify(hooks.parseLegadoV1(JSON.stringify(valid)))), {
     ...valid,
+    config: { modoColeta: 'com-gabarito' },
     logs: []
   });
   assert.equal(hooks.parseLegadoV1('{not-json'), null);
