@@ -123,10 +123,22 @@
                     contexto: Object.assign({}, contextoBase, { metodo: 'clique' })
                 });
                 resolver.click();
+                var avisouCaptcha = false;
                 workerTick(CONFIG.pollInterval, function () {
+                    if (modalRecaptchaAberto()) {
+                        if (!avisouCaptcha) {
+                            avisouCaptcha = true;
+                            log('Modal de verificação de robô (reCAPTCHA) detectado. Aguardando validação...', {
+                                tipo: 'observacao', nivel: 'warn', fase: 'resolvendo',
+                                contexto: Object.assign({}, contextoBase, { motivo: 'recaptcha-detectado' })
+                            });
+                            UI.setStatus('Aguardando reCAPTCHA...');
+                        }
+                        return false;
+                    }
                     var res = document.querySelector('.questao-enunciado-resolucao-errou, .questao-enunciado-resolucao-acertou, .questao-enunciado-mensagem-resolucao');
                     return res && /correta|acert|errou|Gabarito/i.test(res.innerText || '');
-                }, CONFIG.loadTimeout, function (ok) {
+                }, CONFIG.loadTimeout + 30000, function (ok) {
                     if (!ok) {
                         GabaritoInterceptor.estatisticas.semGabarito += 1;
                         GabaritoInterceptor.ultimoMetodo = 'clique-timeout';

@@ -45,3 +45,20 @@
         return workerSleep(Math.round(ms));
     }
 
+    function modalRecaptchaAberto() {
+        var limite = document.getElementById('recaptcha-limite-container');
+        if (limite && (limite.offsetParent !== null || limite.offsetHeight > 0 || limite.querySelector('iframe'))) {
+            return true;
+        }
+        var modal = document.querySelector('.modal-body');
+        if (modal && /não é um robô/i.test(modal.textContent || '')) {
+            return true;
+        }
+        var iframeCaptcha = document.querySelector('iframe[src*="recaptcha/api2/anchor"]');
+        if (iframeCaptcha && iframeCaptcha.offsetParent !== null) {
+            return true;
+        }
+        return false;
+    }
+
+

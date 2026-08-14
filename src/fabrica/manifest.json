@@ -9,7 +9,9 @@
     "description": "Cria cadernos em lote a partir de um plano de matérias (com bancas e anos), coleta cada questão com o gabarito oficial e exporta HTML interativo + Excel completos.",
     "author": "voce",
     "match": [
-      "https://www.tecconcursos.com.br/*"
+      "https://www.tecconcursos.com.br/*",
+      "https://www.google.com/recaptcha/api2/anchor*",
+      "https://www.recaptcha.net/recaptcha/api2/anchor*"
     ],
     "grant": [
       "none"

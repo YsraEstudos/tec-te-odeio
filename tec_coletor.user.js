@@ -5,12 +5,56 @@
 // @description  Coleta silenciosamente todas as questões do caderno aberto (enunciado + alternativas) e exporta um JSON pronto para PDF/Anki.
 // @author       voce
 // @match        https://www.tecconcursos.com.br/questoes/cadernos/*
+// @match        https://www.google.com/recaptcha/api2/anchor*
+// @match        https://www.recaptcha.net/recaptcha/api2/anchor*
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==
 
 (function () {
     'use strict';
+
+    /* ============================================================
+     * AUTO-CLIQUE NO reCAPTCHA (quando executado no iframe do Google)
+     * ============================================================ */
+    if (/(google\.com|recaptcha\.net)$/i.test(location.hostname) && /\/recaptcha\/api2\/anchor/i.test(location.pathname)) {
+        (function autoClicarRecaptcha() {
+            var tentativas = 0;
+            var maxTentativas = 60;
+            var iv = setInterval(function () {
+                tentativas += 1;
+                var anchor = document.getElementById('recaptcha-anchor');
+                var border = document.querySelector('.recaptcha-checkbox-border');
+                var checkbox = border || anchor;
+                if (checkbox) {
+                    var marcado = (anchor && anchor.getAttribute('aria-checked') === 'true') ||
+                                  (anchor && anchor.classList.contains('recaptcha-checkbox-checked'));
+                    var desabilitado = anchor && anchor.getAttribute('aria-disabled') === 'true';
+                    if (marcado) {
+                        clearInterval(iv);
+                        return;
+                    }
+                    if (!desabilitado) {
+                        clearInterval(iv);
+                        setTimeout(function () {
+                            try {
+                                checkbox.click();
+                                console.log('[TecColetor] Checkbox do reCAPTCHA (.recaptcha-checkbox-border) clicado automaticamente.');
+                            } catch (e) {
+                                try {
+                                    checkbox.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                                } catch (e2) {}
+                            }
+                        }, 350 + Math.floor(Math.random() * 350));
+                    }
+                }
+                if (tentativas >= maxTentativas) {
+                    clearInterval(iv);
+                }
+            }, 100);
+        })();
+        return;
+    }
 
     /* ============================================================
      * CONFIG
@@ -360,8 +404,32 @@
         return id + '|' + pos + '|' + hash.toString(36);
     }
 
+    function modalRecaptchaAberto() {
+        var limite = document.getElementById('recaptcha-limite-container');
+        if (limite && (limite.offsetParent !== null || limite.offsetHeight > 0 || limite.querySelector('iframe'))) {
+            return true;
+        }
+        var modal = document.querySelector('.modal-body');
+        if (modal && /não é um robô/i.test(modal.textContent || '')) {
+            return true;
+        }
+        var iframeCaptcha = document.querySelector('iframe[src*="recaptcha/api2/anchor"]');
+        if (iframeCaptcha && iframeCaptcha.offsetParent !== null) {
+            return true;
+        }
+        return false;
+    }
+
     function aguardarQuestaoCarregar(questaoIdAnterior, assinaturaAnterior, callback) {
+        var avisouCaptcha = false;
         workerTick(CONFIG.pollInterval, function () {
+            if (modalRecaptchaAberto()) {
+                if (!avisouCaptcha) {
+                    avisouCaptcha = true;
+                    log('Modal de verificação de robô (reCAPTCHA) detectado. Aguardando validação...');
+                }
+                return false;
+            }
             // exige o ID da questão alterado E o conteúdo (article/texto) carregado;
             // quando uma assinatura anterior é informada, exige também que a
             // assinatura atual mude (rejeita artigo obsoleto).
@@ -370,7 +438,7 @@
             if (!questaoConteudoPronta()) return false;
             if (assinaturaAnterior && assinaturaQuestao() === assinaturaAnterior) return false;
             return true;
-        }, CONFIG.loadTimeout, callback);
+        }, CONFIG.loadTimeout + 30000, callback);
     }
 
     /* ============================================================
