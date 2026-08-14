@@ -28,6 +28,30 @@ As alterações preexistentes em `diagnostico/relatorio-instrumentado.json`, `di
 - O refresh usa guards compatíveis com os contextos existentes (`UI`/`renderProgresso` opcionais).
 - O artefato `dist/tec_fabrica_cadernos.user.js` foi restaurado após a suíte de build regenerá-lo; ele estava limpo antes dos testes e fica fora do escopo.
 
+## Rodada de correção 1
+
+Finding corrigido: o teste textual de sucesso foi removido. Ele foi substituído por uma execução real de `resolverParaGabarito` com 36 reservas usadas, botão de resolução funcional e resposta `A` visível após o clique.
+
+As asserções comportamentais verificam que:
+
+- o resultado é `A`;
+- o botão é clicado uma vez;
+- o contador passa de 36 para 37;
+- `UI.renderProgresso()` é chamado exatamente uma vez;
+- o método registrado é `clique`.
+
+Arquivos alterados nesta rodada:
+
+- `test/daily-resolution-limit.test.mjs`
+- este relatório.
+
+Comandos e resultados desta rodada:
+
+- `node --test test/daily-resolution-limit.test.mjs` — `6` testes, `6` pass, `0` fail.
+- `$tests = Get-ChildItem -LiteralPath test -Filter '*.mjs' | Sort-Object FullName | ForEach-Object { $_.FullName }; node --test $tests` — `80` testes, `80` pass, `0` fail, exit code `0`.
+
+O `dist/tec_fabrica_cadernos.user.js` regenerado pela suíte foi restaurado novamente por permanecer fora do escopo.
+
 ## TDD e testes
 
 1. RED do modelo:

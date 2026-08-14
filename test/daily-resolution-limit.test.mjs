@@ -138,10 +138,66 @@ window.__resolutionTest = { resolverParaGabarito };`, context, { filename: '10-r
   assert.equal(context.GabaritoInterceptor.ultimoMetodo, 'limite-diario');
 });
 
-test('reserva diária atualiza o progresso imediatamente após o sucesso', () => {
-  const reserva = resolutionSource.slice(
-    resolutionSource.indexOf('if (!reservarResolucaoDiaria(estado))'),
-    resolutionSource.indexOf('resolver.click();')
-  );
-  assert.match(reserva, /UI\.renderProgresso\(\)/);
+test('reserva diária atualiza o progresso exatamente uma vez após o sucesso', async () => {
+  let resolved = false;
+  let resolverClicks = 0;
+  let progressRenders = 0;
+  const radio = { click() {} };
+  const label = { querySelector: () => radio };
+  const resolver = {
+    disabled: false,
+    innerText: 'RESOLVER QUESTÃO',
+    click() {
+      resolverClicks += 1;
+      resolved = true;
+    }
+  };
+  const art = { querySelectorAll: () => [label] };
+  const agora = new Date();
+  const dataHoje = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}-${String(agora.getDate()).padStart(2, '0')}`;
+  const context = {
+    window: {},
+    CONFIG: { pollInterval: 1, loadTimeout: 1 },
+    estado: {
+      status: 'rodando',
+      config: { usarCliqueGabarito: true },
+      controleResolucoesDiarias: { data: dataHoje, total: 36 }
+    },
+    GabaritoInterceptor: {
+      ultimoMetodo: null,
+      estatisticas: { semGabarito: 0, viaClique: 0 },
+      obterPorQuestaoId: () => null
+    },
+    document: {
+      querySelector(selector) {
+        if (selector === 'article.questao-enunciado') return art;
+        if (selector.includes('resolucao-')) return resolved ? { innerText: 'Gabarito: A' } : null;
+        return null;
+      },
+      querySelectorAll(selector) {
+        if (selector === '.questao-enunciado-alternativa') return [label];
+        if (selector === 'button') return [resolver];
+        return [];
+      }
+    },
+    workerSleep: () => Promise.resolve(),
+    workerTick: (interval, condition, timeout, callback) => callback(condition()),
+    modalRecaptchaAberto: () => false,
+    UI: { setStatus() {}, renderProgresso() { progressRenders += 1; } },
+    log() {},
+    console
+  };
+
+  vm.runInNewContext(`${stateSource}
+${resolutionSource}
+window.__resolutionTest = { resolverParaGabarito };`, context, { filename: '10-resolucao.js' });
+  const result = await context.window.__resolutionTest.resolverParaGabarito({
+    id: 'q-sucesso', number: 1, options: [{ letter: 'A' }]
+  });
+
+  assert.equal(result, 'A');
+  assert.equal(resolverClicks, 1);
+  assert.equal(progressRenders, 1);
+  assert.equal(context.estado.controleResolucoesDiarias.total, 37);
+  assert.equal(context.GabaritoInterceptor.ultimoMetodo, 'clique');
 });
