@@ -20,3 +20,13 @@ test('instrumentação rejeita fonte já instrumentada', () => {
   assert.throws(() => instrument('})();\n__TecFabricaDiagnostics'), /já instrumentada/);
   rmSync(tmp, { recursive: true, force: true });
 });
+
+test('instrumentação encontra o fecho da IIFE com LF e CRLF', () => {
+  for (const newline of ['\n', '\r\n']) {
+    const source = '(function () {' + newline + '  var pronta = true;' + newline + '})();' + newline;
+    const output = instrument(source);
+
+    assert.match(output, /__TecFabricaDiagnostics/);
+    assert.ok(output.endsWith('})();' + newline));
+  }
+});

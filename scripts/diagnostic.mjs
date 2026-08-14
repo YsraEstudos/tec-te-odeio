@@ -31,8 +31,10 @@ export function instrument(source) {
   if (originalWorker) window.Worker = function () { counters.workers += 1; return new (Function.prototype.bind.apply(originalWorker, [null].concat([].slice.call(arguments))))(); };
 })();
 `;
-  const marker = '\n})();\n';
-  const index = source.lastIndexOf(marker);
+  const marker = /\r?\n\}\)\(\);\r?\n/g;
+  let match;
+  let index = -1;
+  while ((match = marker.exec(source))) index = match.index;
   if (index < 0) throw new Error('fecho da IIFE não encontrado');
   return source.slice(0, index) + probe + source.slice(index);
 }
