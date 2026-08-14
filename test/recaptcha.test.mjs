@@ -32,7 +32,41 @@ test('código de auto-clique no reCAPTCHA identifica iframe e elemento .recaptch
 });
 
 test('modalRecaptchaAberto detecta container e texto de confirmação de robô', () => {
+  assert.match(domHelpersSource, /function elementoVisivel\(el\)/);
   assert.match(domHelpersSource, /function modalRecaptchaAberto\(\)/);
   assert.match(domHelpersSource, /recaptcha-limite-container/);
   assert.match(domHelpersSource, /não é um robô/i);
+});
+
+test('modalRecaptchaAberto ignora containers e iframes ocultos', () => {
+  // Executa uma versão isolada das funções de visibilidade com mocks simples
+  const fnCode = `
+    ${domHelpersSource}
+    return { elementoVisivel, modalRecaptchaAberto };
+  `;
+  const factory = new Function('document', 'window', fnCode);
+
+  // Caso 1: DOM sem recaptcha
+  const mockDocVazio = {
+    getElementById: () => null,
+    querySelectorAll: () => []
+  };
+  const ctxVazio = factory(mockDocVazio, {});
+  assert.equal(ctxVazio.modalRecaptchaAberto(), false);
+
+  // Caso 2: Container existe mas offsetParent é null (oculto)
+  const mockDocOculto = {
+    getElementById: (id) => id === 'recaptcha-limite-container' ? { offsetParent: null, style: { display: 'none' } } : null,
+    querySelectorAll: () => []
+  };
+  const ctxOculto = factory(mockDocOculto, { getComputedStyle: () => ({ display: 'none' }) });
+  assert.equal(ctxOculto.modalRecaptchaAberto(), false);
+
+  // Caso 3: Container existe e está visível
+  const mockDocVisivel = {
+    getElementById: (id) => id === 'recaptcha-limite-container' ? { offsetParent: {}, style: { display: 'block' }, getBoundingClientRect: () => ({ width: 300, height: 200 }) } : null,
+    querySelectorAll: () => []
+  };
+  const ctxVisivel = factory(mockDocVisivel, { getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }) });
+  assert.equal(ctxVisivel.modalRecaptchaAberto(), true);
 });

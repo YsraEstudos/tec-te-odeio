@@ -76,6 +76,18 @@
                     contexto: { cadernoId: caderno.id, questaoId: questao.id, numero: questao.number, opcoes: questao.options.length }
                 });
                 var gabarito = await resolverParaGabarito(questao);
+                if (estado.status !== 'rodando') return;
+
+                if (!gabarito && modalRecaptchaAberto()) {
+                    log('Coleta pausada: reCAPTCHA detectado e pendente de validação.', {
+                        tipo: 'resultado', nivel: 'warn', fase: 'coletando',
+                        contexto: { cadernoId: caderno.id, questaoId: questao.id, numero: questao.number }
+                    });
+                    parar();
+                    UI.setStatus('Pausado: resolva o reCAPTCHA na página e clique em Continuar.');
+                    return;
+                }
+
                 var answerSource = gabarito ? (GabaritoInterceptor.ultimoMetodo || 'resolucao') : (existente && existente.answerSource || 'nao-obtido');
                 if (existente) {
                     // atualiza apenas o que faltava (gabarito retentado)
@@ -210,6 +222,16 @@
                     continue;
                 }
                 var gRetry = await resolverParaGabarito(qRetry);
+                if (estado.status !== 'rodando') return;
+                if (!gRetry && modalRecaptchaAberto()) {
+                    log('Retry pausado: reCAPTCHA detectado e pendente de validação.', {
+                        tipo: 'resultado', nivel: 'warn', fase: 'coletando',
+                        contexto: { cadernoId: caderno.id, questaoId: colecao[i].id, numero: colecao[i].number, passada: passadas }
+                    });
+                    parar();
+                    UI.setStatus('Pausado: resolva o reCAPTCHA na página e clique em Continuar.');
+                    return;
+                }
                 if (gRetry) {
                     colecao[i].answer = gRetry;
                     colecao[i].answerSource = GabaritoInterceptor.ultimoMetodo || 'resolucao';

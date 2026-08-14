@@ -337,17 +337,56 @@
         return workerSleep(Math.round(ms));
     }
 
+    function elementoVisivel(el) {
+        if (!el || el.hidden || el.disabled) return false;
+        if (/ng-hide/.test(String(el.className || ''))) return false;
+        var modal = (typeof el.closest === 'function') ? el.closest('.modal') : null;
+        if (modal) {
+            if (modal.style && modal.style.display === 'none') return false;
+            if (/ng-hide/.test(String(modal.className || ''))) return false;
+            if (!/(^|\s)(in|show)(\s|$)/.test(modal.className || '') && modal.style.display !== 'block') return false;
+        }
+        if (el.offsetParent === null) {
+            if (typeof window !== 'undefined' && typeof window.getComputedStyle === 'function') {
+                try {
+                    var cs = window.getComputedStyle(el);
+                    if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') return false;
+                    if (cs.position !== 'fixed') return false;
+                } catch (e) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        } else if (typeof window !== 'undefined' && typeof window.getComputedStyle === 'function') {
+            try {
+                var cs2 = window.getComputedStyle(el);
+                if (cs2.display === 'none' || cs2.visibility === 'hidden' || cs2.opacity === '0') return false;
+            } catch (e2) {}
+        }
+        if (typeof el.getBoundingClientRect === 'function') {
+            try {
+                var r = el.getBoundingClientRect();
+                if (r.width === 0 && r.height === 0) return false;
+            } catch (e3) {}
+        }
+        return true;
+    }
+
     function modalRecaptchaAberto() {
         var limite = document.getElementById('recaptcha-limite-container');
-        if (limite && (limite.offsetParent !== null || limite.offsetHeight > 0 || limite.querySelector('iframe'))) {
+        if (limite && elementoVisivel(limite)) {
             return true;
         }
-        var modal = document.querySelector('.modal-body');
-        if (modal && /não é um robô/i.test(modal.textContent || '')) {
-            return true;
+        var modais = Array.from(document.querySelectorAll('.modal, .modal-body, .modal-dialog')).filter(elementoVisivel);
+        for (var i = 0; i < modais.length; i += 1) {
+            var txt = modais[i].textContent || '';
+            if (/não é um robô|recaptcha|confirmação de robô/i.test(txt)) {
+                return true;
+            }
         }
-        var iframeCaptcha = document.querySelector('iframe[src*="recaptcha/api2/anchor"]');
-        if (iframeCaptcha && iframeCaptcha.offsetParent !== null) {
+        var iframes = Array.from(document.querySelectorAll('iframe[src*="recaptcha/api2/anchor"], iframe[src*="recaptcha/api2/bframe"]')).filter(elementoVisivel);
+        if (iframes.length > 0) {
             return true;
         }
         return false;
@@ -1627,6 +1666,10 @@
             });
             campo.click();
             workerSleep(600).then(function () {
+                if (estado.status !== 'rodando') {
+                    resolve(null);
+                    return;
+                }
                 var resolver = Array.from(document.querySelectorAll('button')).find(function (b) {
                     return /RESOLVER QUEST[AÃ]O/i.test(b.innerText || '') && !b.disabled;
                 });
@@ -1646,8 +1689,14 @@
                 });
                 resolver.click();
                 var avisouCaptcha = false;
+                var captchaAbertoAntes = false;
+                var inicioEspera = Date.now();
+                var CAPTCHA_MAX_ESPERA_MS = 180000;
                 workerTick(CONFIG.pollInterval, function () {
+                    if (estado.status !== 'rodando') return true;
+
                     if (modalRecaptchaAberto()) {
+                        captchaAbertoAntes = true;
                         if (!avisouCaptcha) {
                             avisouCaptcha = true;
                             log('Modal de verificação de robô (reCAPTCHA) detectado. Aguardando validação...', {
@@ -1656,21 +1705,42 @@
                             });
                             UI.setStatus('Aguardando reCAPTCHA...');
                         }
+                        if (Date.now() - inicioEspera > CAPTCHA_MAX_ESPERA_MS) {
+                            return true;
+                        }
                         return false;
                     }
-                    var res = document.querySelector('.questao-enunciado-resolucao-errou, .questao-enunciado-resolucao-acertou, .questao-enunciado-mensagem-resolucao');
-                    return res && /correta|acert|errou|Gabarito/i.test(res.innerText || '');
-                }, CONFIG.loadTimeout + 30000, function (ok) {
-                    if (!ok) {
-                        GabaritoInterceptor.estatisticas.semGabarito += 1;
-                        GabaritoInterceptor.ultimoMetodo = 'clique-timeout';
-                        log('A resolução não apareceu dentro do tempo limite.', {
-                            tipo: 'resultado', nivel: 'warn', fase: 'resolvendo',
-                            contexto: Object.assign({}, contextoBase, { metodo: 'clique-timeout', gabarito: null })
+
+                    if (captchaAbertoAntes && avisouCaptcha) {
+                        avisouCaptcha = false;
+                        log('Modal de reCAPTCHA não está mais visível. Verificando resolução...', {
+                            tipo: 'observacao', nivel: 'info', fase: 'resolvendo',
+                            contexto: Object.assign({}, contextoBase, { motivo: 'recaptcha-fechado' })
                         });
+                        UI.setStatus('Coletando questão ' + (questao.number || '') + '...');
+                    }
+
+                    var res = document.querySelector('.questao-enunciado-resolucao-errou, .questao-enunciado-resolucao-acertou, .questao-enunciado-mensagem-resolucao');
+                    if (res && /correta|acert|errou|Gabarito/i.test(res.innerText || '')) {
+                        return true;
+                    }
+
+                    if (captchaAbertoAntes && !modalRecaptchaAberto()) {
+                        var btnReclique = Array.from(document.querySelectorAll('button')).find(function (b) {
+                            return /RESOLVER QUEST[AÃ]O/i.test(b.innerText || '') && !b.disabled;
+                        });
+                        if (btnReclique) {
+                            try { btnReclique.click(); } catch (e) {}
+                        }
+                    }
+
+                    return false;
+                }, CONFIG.loadTimeout + (modalRecaptchaAberto() ? CAPTCHA_MAX_ESPERA_MS : 10000), function (ok) {
+                    if (estado.status !== 'rodando') {
                         resolve(null);
                         return;
                     }
+
                     var m = document.querySelector('.questao-enunciado-mensagem-resolucao, .questao-enunciado-resolucao-errou, .questao-enunciado-resolucao-acertou');
                     var t = m ? (m.innerText || m.textContent) : '';
                     var gab = lerGabaritoDoTexto(t);
@@ -1681,15 +1751,39 @@
                             tipo: 'resultado', nivel: 'ok', fase: 'resolvendo',
                             contexto: Object.assign({}, contextoBase, { metodo: 'clique', gabarito: gab })
                         });
-                    } else {
-                        GabaritoInterceptor.estatisticas.semGabarito += 1;
-                        GabaritoInterceptor.ultimoMetodo = 'clique-sem-gabarito';
-                        log('A resolução apareceu, mas não continha uma alternativa identificável.', {
-                            tipo: 'resultado', nivel: 'warn', fase: 'resolvendo',
-                            contexto: Object.assign({}, contextoBase, { metodo: 'clique-sem-gabarito', gabarito: null })
-                        });
+                        resolve(gab);
+                        return;
                     }
-                    resolve(gab);
+
+                    if (modalRecaptchaAberto()) {
+                        GabaritoInterceptor.estatisticas.semGabarito += 1;
+                        GabaritoInterceptor.ultimoMetodo = 'recaptcha-pendente';
+                        log('Resolução não concluída: reCAPTCHA permaneceu aberto.', {
+                            tipo: 'resultado', nivel: 'warn', fase: 'resolvendo',
+                            contexto: Object.assign({}, contextoBase, { metodo: 'recaptcha-pendente', gabarito: null })
+                        });
+                        resolve(null);
+                        return;
+                    }
+
+                    if (!ok) {
+                        GabaritoInterceptor.estatisticas.semGabarito += 1;
+                        GabaritoInterceptor.ultimoMetodo = 'clique-timeout';
+                        log('A resolução não apareceu dentro do tempo limite.', {
+                            tipo: 'resultado', nivel: 'warn', fase: 'resolvendo',
+                            contexto: Object.assign({}, contextoBase, { metodo: 'clique-timeout', gabarito: null })
+                        });
+                        resolve(null);
+                        return;
+                    }
+
+                    GabaritoInterceptor.estatisticas.semGabarito += 1;
+                    GabaritoInterceptor.ultimoMetodo = 'clique-sem-gabarito';
+                    log('A resolução apareceu, mas não continha uma alternativa identificável.', {
+                        tipo: 'resultado', nivel: 'warn', fase: 'resolvendo',
+                        contexto: Object.assign({}, contextoBase, { metodo: 'clique-sem-gabarito', gabarito: null })
+                    });
+                    resolve(null);
                 });
             });
         });
@@ -2061,6 +2155,18 @@
                     contexto: { cadernoId: caderno.id, questaoId: questao.id, numero: questao.number, opcoes: questao.options.length }
                 });
                 var gabarito = await resolverParaGabarito(questao);
+                if (estado.status !== 'rodando') return;
+
+                if (!gabarito && modalRecaptchaAberto()) {
+                    log('Coleta pausada: reCAPTCHA detectado e pendente de validação.', {
+                        tipo: 'resultado', nivel: 'warn', fase: 'coletando',
+                        contexto: { cadernoId: caderno.id, questaoId: questao.id, numero: questao.number }
+                    });
+                    parar();
+                    UI.setStatus('Pausado: resolva o reCAPTCHA na página e clique em Continuar.');
+                    return;
+                }
+
                 var answerSource = gabarito ? (GabaritoInterceptor.ultimoMetodo || 'resolucao') : (existente && existente.answerSource || 'nao-obtido');
                 if (existente) {
                     // atualiza apenas o que faltava (gabarito retentado)
@@ -2195,6 +2301,16 @@
                     continue;
                 }
                 var gRetry = await resolverParaGabarito(qRetry);
+                if (estado.status !== 'rodando') return;
+                if (!gRetry && modalRecaptchaAberto()) {
+                    log('Retry pausado: reCAPTCHA detectado e pendente de validação.', {
+                        tipo: 'resultado', nivel: 'warn', fase: 'coletando',
+                        contexto: { cadernoId: caderno.id, questaoId: colecao[i].id, numero: colecao[i].number, passada: passadas }
+                    });
+                    parar();
+                    UI.setStatus('Pausado: resolva o reCAPTCHA na página e clique em Continuar.');
+                    return;
+                }
                 if (gRetry) {
                     colecao[i].answer = gRetry;
                     colecao[i].answerSource = GabaritoInterceptor.ultimoMetodo || 'resolucao';
@@ -2412,8 +2528,10 @@
 
         var materia = plano.matters[estado.planIndex];
         var idCadernoRota = paginaAtual() === 'caderno' ? cadernoIdDaUrl() : '';
-        var existente = idCadernoRota ? estado.biblioteca[idCadernoRota] : null;
-        if (!existente) existente = acharCadernoPorTitulo(materia.title);
+        var existente = (idCadernoRota && estado.biblioteca[idCadernoRota] && normalizarTituloCaderno(estado.biblioteca[idCadernoRota].titulo) === normalizarTituloCaderno(materia.title))
+            ? estado.biblioteca[idCadernoRota]
+            : acharCadernoPorTitulo(materia.title);
+
         log('Avaliando próxima matéria do plano.', {
             tipo: 'observacao', fase: estado.fase || 'nenhuma',
             contexto: { planIndex: estado.planIndex, materias: plano.matters.length, materia: materia.title, cadernoRegistrado: !!existente, pagina: paginaAtual() }
@@ -2475,6 +2593,10 @@
                     return;
                 }
                 var link = encontrarLinkCadernoNaPasta(materia.title);
+                if (!link) {
+                    await workerSleep(1200);
+                    link = encontrarLinkCadernoNaPasta(materia.title);
+                }
                 if (link) {
                     var mId = (link.href || '').match(/cadernos\/(\d+)/);
                     if (mId) {
@@ -2509,7 +2631,11 @@
                 });
                 estado.fase = 'criar-novo';
                 salvarEstado();
-                irPara(urlFiltros()); // navega → próximo boot retoma em criar-novo
+                if (paginaAtual() === 'filtros') {
+                    processarLote();
+                } else {
+                    irPara(urlFiltros()); // navega → próximo boot retoma em criar-novo
+                }
                 return;
             }
             case 'criar-novo': {
@@ -2591,7 +2717,11 @@
                     tipo: 'decisao', nivel: 'warn', fase: 'criando', contexto: { materia: materia.title, pagina: paginaAtual(), proximaFase: 'pasta-check' }
                 });
                 salvarEstado();
-                irPara(urlPasta());
+                if (paginaAtual() === 'pasta') {
+                    processarLote();
+                } else {
+                    irPara(urlPasta());
+                }
                 return;
             }
             default: {
@@ -2603,7 +2733,11 @@
                 });
                 salvarEstado();
                 UI.setStatus(estado.mensagem);
-                irPara(urlPasta()); // navega → próximo boot retoma em pasta-check
+                if (paginaAtual() === 'pasta') {
+                    processarLote();
+                } else {
+                    irPara(urlPasta()); // navega → próximo boot retoma em pasta-check
+                }
                 return;
             }
         }
@@ -2624,6 +2758,9 @@
             return;
         }
         cancelarAutoResumir();
+        if (typeof Scheduler !== 'undefined' && typeof Scheduler.limpar === 'function') {
+            Scheduler.limpar();
+        }
         estado.status = 'rodando';
         estado.modo = 'lote';
         estado.pausaManual = false;
@@ -2641,6 +2778,9 @@
 
     function parar() {
         cancelarAutoResumir();
+        if (typeof Scheduler !== 'undefined' && typeof Scheduler.limpar === 'function') {
+            Scheduler.limpar();
+        }
         estado.status = 'pausado';
         estado.pausaManual = true;
         salvarEstado(true);
@@ -2662,6 +2802,9 @@
             return;
         }
         cancelarAutoResumir();
+        if (typeof Scheduler !== 'undefined' && typeof Scheduler.limpar === 'function') {
+            Scheduler.limpar();
+        }
         estado.status = 'rodando';
         estado.modo = 'lote';
         estado.pausaManual = false;
@@ -2675,7 +2818,6 @@
         });
         processarLote();
     }
-
     /* =====================================================================
      * (continua — exportadores e UI nas próximas seções)
      * =================================================================== */

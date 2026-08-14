@@ -187,8 +187,10 @@
 
         var materia = plano.matters[estado.planIndex];
         var idCadernoRota = paginaAtual() === 'caderno' ? cadernoIdDaUrl() : '';
-        var existente = idCadernoRota ? estado.biblioteca[idCadernoRota] : null;
-        if (!existente) existente = acharCadernoPorTitulo(materia.title);
+        var existente = (idCadernoRota && estado.biblioteca[idCadernoRota] && normalizarTituloCaderno(estado.biblioteca[idCadernoRota].titulo) === normalizarTituloCaderno(materia.title))
+            ? estado.biblioteca[idCadernoRota]
+            : acharCadernoPorTitulo(materia.title);
+
         log('Avaliando próxima matéria do plano.', {
             tipo: 'observacao', fase: estado.fase || 'nenhuma',
             contexto: { planIndex: estado.planIndex, materias: plano.matters.length, materia: materia.title, cadernoRegistrado: !!existente, pagina: paginaAtual() }
@@ -250,6 +252,10 @@
                     return;
                 }
                 var link = encontrarLinkCadernoNaPasta(materia.title);
+                if (!link) {
+                    await workerSleep(1200);
+                    link = encontrarLinkCadernoNaPasta(materia.title);
+                }
                 if (link) {
                     var mId = (link.href || '').match(/cadernos\/(\d+)/);
                     if (mId) {
@@ -284,7 +290,11 @@
                 });
                 estado.fase = 'criar-novo';
                 salvarEstado();
-                irPara(urlFiltros()); // navega → próximo boot retoma em criar-novo
+                if (paginaAtual() === 'filtros') {
+                    processarLote();
+                } else {
+                    irPara(urlFiltros()); // navega → próximo boot retoma em criar-novo
+                }
                 return;
             }
             case 'criar-novo': {
@@ -366,7 +376,11 @@
                     tipo: 'decisao', nivel: 'warn', fase: 'criando', contexto: { materia: materia.title, pagina: paginaAtual(), proximaFase: 'pasta-check' }
                 });
                 salvarEstado();
-                irPara(urlPasta());
+                if (paginaAtual() === 'pasta') {
+                    processarLote();
+                } else {
+                    irPara(urlPasta());
+                }
                 return;
             }
             default: {
@@ -378,7 +392,11 @@
                 });
                 salvarEstado();
                 UI.setStatus(estado.mensagem);
-                irPara(urlPasta()); // navega → próximo boot retoma em pasta-check
+                if (paginaAtual() === 'pasta') {
+                    processarLote();
+                } else {
+                    irPara(urlPasta()); // navega → próximo boot retoma em pasta-check
+                }
                 return;
             }
         }
@@ -399,6 +417,9 @@
             return;
         }
         cancelarAutoResumir();
+        if (typeof Scheduler !== 'undefined' && typeof Scheduler.limpar === 'function') {
+            Scheduler.limpar();
+        }
         estado.status = 'rodando';
         estado.modo = 'lote';
         estado.pausaManual = false;
@@ -416,6 +437,9 @@
 
     function parar() {
         cancelarAutoResumir();
+        if (typeof Scheduler !== 'undefined' && typeof Scheduler.limpar === 'function') {
+            Scheduler.limpar();
+        }
         estado.status = 'pausado';
         estado.pausaManual = true;
         salvarEstado(true);
@@ -437,6 +461,9 @@
             return;
         }
         cancelarAutoResumir();
+        if (typeof Scheduler !== 'undefined' && typeof Scheduler.limpar === 'function') {
+            Scheduler.limpar();
+        }
         estado.status = 'rodando';
         estado.modo = 'lote';
         estado.pausaManual = false;
@@ -450,4 +477,3 @@
         });
         processarLote();
     }
-

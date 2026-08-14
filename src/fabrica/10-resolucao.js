@@ -105,6 +105,10 @@
             });
             campo.click();
             workerSleep(600).then(function () {
+                if (estado.status !== 'rodando') {
+                    resolve(null);
+                    return;
+                }
                 var resolver = Array.from(document.querySelectorAll('button')).find(function (b) {
                     return /RESOLVER QUEST[AÃ]O/i.test(b.innerText || '') && !b.disabled;
                 });
@@ -124,8 +128,14 @@
                 });
                 resolver.click();
                 var avisouCaptcha = false;
+                var captchaAbertoAntes = false;
+                var inicioEspera = Date.now();
+                var CAPTCHA_MAX_ESPERA_MS = 180000;
                 workerTick(CONFIG.pollInterval, function () {
+                    if (estado.status !== 'rodando') return true;
+
                     if (modalRecaptchaAberto()) {
+                        captchaAbertoAntes = true;
                         if (!avisouCaptcha) {
                             avisouCaptcha = true;
                             log('Modal de verificação de robô (reCAPTCHA) detectado. Aguardando validação...', {
@@ -134,21 +144,42 @@
                             });
                             UI.setStatus('Aguardando reCAPTCHA...');
                         }
+                        if (Date.now() - inicioEspera > CAPTCHA_MAX_ESPERA_MS) {
+                            return true;
+                        }
                         return false;
                     }
-                    var res = document.querySelector('.questao-enunciado-resolucao-errou, .questao-enunciado-resolucao-acertou, .questao-enunciado-mensagem-resolucao');
-                    return res && /correta|acert|errou|Gabarito/i.test(res.innerText || '');
-                }, CONFIG.loadTimeout + 30000, function (ok) {
-                    if (!ok) {
-                        GabaritoInterceptor.estatisticas.semGabarito += 1;
-                        GabaritoInterceptor.ultimoMetodo = 'clique-timeout';
-                        log('A resolução não apareceu dentro do tempo limite.', {
-                            tipo: 'resultado', nivel: 'warn', fase: 'resolvendo',
-                            contexto: Object.assign({}, contextoBase, { metodo: 'clique-timeout', gabarito: null })
+
+                    if (captchaAbertoAntes && avisouCaptcha) {
+                        avisouCaptcha = false;
+                        log('Modal de reCAPTCHA não está mais visível. Verificando resolução...', {
+                            tipo: 'observacao', nivel: 'info', fase: 'resolvendo',
+                            contexto: Object.assign({}, contextoBase, { motivo: 'recaptcha-fechado' })
                         });
+                        UI.setStatus('Coletando questão ' + (questao.number || '') + '...');
+                    }
+
+                    var res = document.querySelector('.questao-enunciado-resolucao-errou, .questao-enunciado-resolucao-acertou, .questao-enunciado-mensagem-resolucao');
+                    if (res && /correta|acert|errou|Gabarito/i.test(res.innerText || '')) {
+                        return true;
+                    }
+
+                    if (captchaAbertoAntes && !modalRecaptchaAberto()) {
+                        var btnReclique = Array.from(document.querySelectorAll('button')).find(function (b) {
+                            return /RESOLVER QUEST[AÃ]O/i.test(b.innerText || '') && !b.disabled;
+                        });
+                        if (btnReclique) {
+                            try { btnReclique.click(); } catch (e) {}
+                        }
+                    }
+
+                    return false;
+                }, CONFIG.loadTimeout + (modalRecaptchaAberto() ? CAPTCHA_MAX_ESPERA_MS : 10000), function (ok) {
+                    if (estado.status !== 'rodando') {
                         resolve(null);
                         return;
                     }
+
                     var m = document.querySelector('.questao-enunciado-mensagem-resolucao, .questao-enunciado-resolucao-errou, .questao-enunciado-resolucao-acertou');
                     var t = m ? (m.innerText || m.textContent) : '';
                     var gab = lerGabaritoDoTexto(t);
@@ -159,15 +190,39 @@
                             tipo: 'resultado', nivel: 'ok', fase: 'resolvendo',
                             contexto: Object.assign({}, contextoBase, { metodo: 'clique', gabarito: gab })
                         });
-                    } else {
-                        GabaritoInterceptor.estatisticas.semGabarito += 1;
-                        GabaritoInterceptor.ultimoMetodo = 'clique-sem-gabarito';
-                        log('A resolução apareceu, mas não continha uma alternativa identificável.', {
-                            tipo: 'resultado', nivel: 'warn', fase: 'resolvendo',
-                            contexto: Object.assign({}, contextoBase, { metodo: 'clique-sem-gabarito', gabarito: null })
-                        });
+                        resolve(gab);
+                        return;
                     }
-                    resolve(gab);
+
+                    if (modalRecaptchaAberto()) {
+                        GabaritoInterceptor.estatisticas.semGabarito += 1;
+                        GabaritoInterceptor.ultimoMetodo = 'recaptcha-pendente';
+                        log('Resolução não concluída: reCAPTCHA permaneceu aberto.', {
+                            tipo: 'resultado', nivel: 'warn', fase: 'resolvendo',
+                            contexto: Object.assign({}, contextoBase, { metodo: 'recaptcha-pendente', gabarito: null })
+                        });
+                        resolve(null);
+                        return;
+                    }
+
+                    if (!ok) {
+                        GabaritoInterceptor.estatisticas.semGabarito += 1;
+                        GabaritoInterceptor.ultimoMetodo = 'clique-timeout';
+                        log('A resolução não apareceu dentro do tempo limite.', {
+                            tipo: 'resultado', nivel: 'warn', fase: 'resolvendo',
+                            contexto: Object.assign({}, contextoBase, { metodo: 'clique-timeout', gabarito: null })
+                        });
+                        resolve(null);
+                        return;
+                    }
+
+                    GabaritoInterceptor.estatisticas.semGabarito += 1;
+                    GabaritoInterceptor.ultimoMetodo = 'clique-sem-gabarito';
+                    log('A resolução apareceu, mas não continha uma alternativa identificável.', {
+                        tipo: 'resultado', nivel: 'warn', fase: 'resolvendo',
+                        contexto: Object.assign({}, contextoBase, { metodo: 'clique-sem-gabarito', gabarito: null })
+                    });
+                    resolve(null);
                 });
             });
         });

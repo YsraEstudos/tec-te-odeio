@@ -404,17 +404,56 @@
         return id + '|' + pos + '|' + hash.toString(36);
     }
 
+    function elementoVisivel(el) {
+        if (!el || el.hidden || el.disabled) return false;
+        if (/ng-hide/.test(String(el.className || ''))) return false;
+        var modal = (typeof el.closest === 'function') ? el.closest('.modal') : null;
+        if (modal) {
+            if (modal.style && modal.style.display === 'none') return false;
+            if (/ng-hide/.test(String(modal.className || ''))) return false;
+            if (!/(^|\s)(in|show)(\s|$)/.test(modal.className || '') && modal.style.display !== 'block') return false;
+        }
+        if (el.offsetParent === null) {
+            if (typeof window !== 'undefined' && typeof window.getComputedStyle === 'function') {
+                try {
+                    var cs = window.getComputedStyle(el);
+                    if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') return false;
+                    if (cs.position !== 'fixed') return false;
+                } catch (e) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        } else if (typeof window !== 'undefined' && typeof window.getComputedStyle === 'function') {
+            try {
+                var cs2 = window.getComputedStyle(el);
+                if (cs2.display === 'none' || cs2.visibility === 'hidden' || cs2.opacity === '0') return false;
+            } catch (e2) {}
+        }
+        if (typeof el.getBoundingClientRect === 'function') {
+            try {
+                var r = el.getBoundingClientRect();
+                if (r.width === 0 && r.height === 0) return false;
+            } catch (e3) {}
+        }
+        return true;
+    }
+
     function modalRecaptchaAberto() {
         var limite = document.getElementById('recaptcha-limite-container');
-        if (limite && (limite.offsetParent !== null || limite.offsetHeight > 0 || limite.querySelector('iframe'))) {
+        if (limite && elementoVisivel(limite)) {
             return true;
         }
-        var modal = document.querySelector('.modal-body');
-        if (modal && /não é um robô/i.test(modal.textContent || '')) {
-            return true;
+        var modais = Array.from(document.querySelectorAll('.modal, .modal-body, .modal-dialog')).filter(elementoVisivel);
+        for (var i = 0; i < modais.length; i += 1) {
+            var txt = modais[i].textContent || '';
+            if (/não é um robô|recaptcha|confirmação de robô/i.test(txt)) {
+                return true;
+            }
         }
-        var iframeCaptcha = document.querySelector('iframe[src*="recaptcha/api2/anchor"]');
-        if (iframeCaptcha && iframeCaptcha.offsetParent !== null) {
+        var iframes = Array.from(document.querySelectorAll('iframe[src*="recaptcha/api2/anchor"], iframe[src*="recaptcha/api2/bframe"]')).filter(elementoVisivel);
+        if (iframes.length > 0) {
             return true;
         }
         return false;
