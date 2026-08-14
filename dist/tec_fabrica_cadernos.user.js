@@ -1647,14 +1647,51 @@
     /* =====================================================================
      * GABARITO VIA RESOLUÇÃO (clique como um humano faria)
      * =================================================================== */
-    function lerGabaritoDoTexto(texto) {
-        // formato de erro: "a correta é: A" / "Gabarito: A"
-        var g = texto.match(/a correta [ée]:\s*([A-E])/i) || texto.match(/Gabarito:\s*([A-E])/i) || texto.match(/correta [ée]:\s*([A-E])/i);
-        if (g) return g[1].toUpperCase();
-        // formato de acerto: "você selecionou: A, alternativa correta"
-        g = texto.match(/selecionou:\s*([A-E])[.,]?\s+alternativa correta/i);
-        if (g) return g[1].toUpperCase();
+    function normalizarTokenGabarito(valor) {
+        var raw = String(valor == null ? '' : valor).trim().toUpperCase().replace(/[.!?,;:]+$/g, '');
+        if (/^[A-E]$/.test(raw)) return raw;
+        if (/^(CERTO|CORRETO|VERDADEIRO)$/.test(raw)) return 'C';
+        if (/^(ERRADO|INCORRETO|FALSO)$/.test(raw)) return 'E';
         return null;
+    }
+
+    function lerGabaritoDoTexto(texto) {
+        var valor = String(texto || '');
+        var token = '(?:[A-E]|Certo|Errado|Correto|Incorreto|Verdadeiro|Falso)';
+        var padroes = [
+            new RegExp('(?:a\\s+)?(?:alternativa\\s+)?correta\\s*[ée]\\s*[:\\-]?\\s*(' + token + ')\\b', 'i'),
+            new RegExp('gabarito\\s*[:\\-]?\\s*(' + token + ')\\b', 'i'),
+            new RegExp('selecionou\\s*:\\s*(' + token + ')\\s*,?\\s*alternativa\\s+correta', 'i')
+        ];
+        for (var i = 0; i < padroes.length; i += 1) {
+            var encontrado = valor.match(padroes[i]);
+            if (encontrado) return normalizarTokenGabarito(encontrado[1]);
+        }
+        return null;
+    }
+
+    function mapearGabaritoParaOpcoes(gabarito, opcoes) {
+        var token = normalizarTokenGabarito(gabarito);
+        var lista = Array.isArray(opcoes) ? opcoes : [];
+        if (!token) return null;
+
+        var porLetra = lista.find(function (opcao) {
+            return normalizarTokenGabarito(opcao && opcao.letter) === token;
+        });
+        if (porLetra) return String(porLetra.letter).trim().toUpperCase();
+
+        var porTexto = lista.find(function (opcao) {
+            return normalizarTokenGabarito(opcao && opcao.text) === token;
+        });
+        if (porTexto) return String(porTexto.letter).trim().toUpperCase();
+
+        // Algumas respostas de Certo/Errado chegam como A/B ou 1/2,
+        // embora o DOM use as letras C/E. Converte pela posição real.
+        var indice = token.charCodeAt(0) - 65;
+        if (indice >= 0 && indice < lista.length && lista[indice] && lista[indice].letter) {
+            return String(lista[indice].letter).trim().toUpperCase();
+        }
+        return token;
     }
 
     function resolverParaGabarito(questao) {
@@ -1676,7 +1713,7 @@
                 return;
             }
             // 1. Gabarito interceptado da resposta que o site já enviou (zero requests extras)
-            var doCache = GabaritoInterceptor.obterPorQuestaoId(questao.id);
+            var doCache = mapearGabaritoParaOpcoes(GabaritoInterceptor.obterPorQuestaoId(questao.id), opts);
             if (doCache) {
                 GabaritoInterceptor.estatisticas.viaCache += 1;
                 GabaritoInterceptor.ultimoMetodo = 'interceptacao';
@@ -1694,7 +1731,7 @@
             // 2. Questão já resolvida antes: a resolução já está visível e os radios desabilitados
             var resVisivel = document.querySelector('.questao-enunciado-resolucao-errou, .questao-enunciado-resolucao-acertou');
             if (resVisivel) {
-                var gv = lerGabaritoDoTexto(resVisivel.innerText || '');
+                var gv = mapearGabaritoParaOpcoes(lerGabaritoDoTexto(resVisivel.innerText || ''), opts);
                 if (gv) {
                     GabaritoInterceptor.estatisticas.viaResolucaoVisivel += 1;
                     GabaritoInterceptor.ultimoMetodo = 'resolucao-visivel';
@@ -1848,7 +1885,7 @@
 
                     var m = document.querySelector('.questao-enunciado-mensagem-resolucao, .questao-enunciado-resolucao-errou, .questao-enunciado-resolucao-acertou');
                     var t = m ? (m.innerText || m.textContent) : '';
-                    var gab = lerGabaritoDoTexto(t);
+                    var gab = mapearGabaritoParaOpcoes(lerGabaritoDoTexto(t), opts);
                     if (gab) {
                         GabaritoInterceptor.estatisticas.viaClique += 1;
                         GabaritoInterceptor.ultimoMetodo = 'clique';
