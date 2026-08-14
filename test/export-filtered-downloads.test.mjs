@@ -113,6 +113,19 @@ test('sanitiza statementHtml adulterado sem remover formatação segura da impre
   assert.doesNotMatch(html, /<script|on(?:click|error|mouseover)\s*=|javascript:/i);
 });
 
+test('remove protocolos javascript ofuscados e conteúdo de elementos perigosos da impressão', () => {
+  const exp = loadExport();
+  const html = exp.buildPrintHtml([{
+    number: 1,
+    statementHtml: '<p><a href="java&#x73;cript:alert(1)">link</a><img src="&#106;avascript:alert(2)"><svg><use xlink:href="java&#115;cript:alert(3)"></use></svg><img src="figura-segura.png"></p><style>body{display:none}</style><script>alert(4)</script><iframe>conteúdo oculto</iframe><p>texto seguro</p>',
+  }], { title: 'Revisão' });
+
+  assert.match(html, /<a\s*>link<\/a>/);
+  assert.match(html, /<img src="figura-segura\.png">/);
+  assert.match(html, /<p>texto seguro<\/p>/);
+  assert.doesNotMatch(html, /javascript:|display:none|alert\(4\)|conteúdo oculto/i);
+});
+
 test('HTML interativo oferece download TXT aplicado às questões filtradas', () => {
   const exp = loadExport();
   const html = exp.buildInteractiveHtml({

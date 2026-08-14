@@ -106,10 +106,23 @@
 
     function sanitizePrintStatementHtml(value) {
         var html = String(value == null ? '' : value);
-        html = html.replace(/<script\b[^>]*>[\s\S]*?(?:<\/script\s*>|$)/gi, '');
-        html = html.replace(/<\/?(?:iframe|object|embed|base|meta|link|style)\b[^>]*>/gi, '');
+        function normalizeProtocol(value) {
+            var decoded = String(value == null ? '' : value).replace(/&(?:#x([0-9a-f]+)|#([0-9]+)|(colon|tab|newline));?/gi, function (match, hex, decimal, named) {
+                if (hex || decimal) {
+                    var code = parseInt(hex || decimal, hex ? 16 : 10);
+                    return code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match;
+                }
+                return { colon: ':', tab: '\t', newline: '\n' }[String(named).toLowerCase()];
+            });
+            return decoded.replace(/[\u0000-\u0020]+/g, '').toLowerCase();
+        }
+        html = html.replace(/<(script|style|iframe|object|embed)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi, '');
+        html = html.replace(/<\/?(?:base|meta|link)\b[^>]*>/gi, '');
         html = html.replace(/([\s/])on[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '$1');
-        return html.replace(/\s(?:href|src|xlink:href)\s*=\s*(?:"\s*javascript:[^"]*"|'\s*javascript:[^']*'|\s*javascript:[^\s>]+)/gi, '');
+        return html.replace(/(\s)(href|src|xlink:href)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, function (match, space, name, attributeValue) {
+            var value = attributeValue.replace(/^(?:"|')|(?:"|')$/g, '');
+            return normalizeProtocol(value).indexOf('javascript:') === 0 ? space : match;
+        });
     }
 
     function buildPrintHtml(questions, entry) {
