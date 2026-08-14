@@ -79,7 +79,7 @@
         return {
             plano: null, planoTexto: '', config: null, status: 'parado', fase: 'nenhuma', modo: 'lote',
             planIndex: 0, loteInicio: 0, loteFim: 0, cadernoAtual: null,
-            biblioteca: {}, logs: [],
+            biblioteca: {}, logs: [], controleResolucoesDiarias: { data: null, total: 0 },
             mensagem: '', erro: null, retomada: false, atualizadoEm: null
         };
     }
@@ -93,6 +93,9 @@
 
     function normalizarEstadoPersistido(valor) {
         if (!valor || typeof valor !== 'object') return valor;
+        if (typeof normalizarControleResolucoesDiarias === 'function') {
+            normalizarControleResolucoesDiarias(valor);
+        }
         if (!Array.isArray(valor.logs)) valor.logs = [];
         if (valor.logs.length > 600) valor.logs = valor.logs.slice(-600);
         valor.logs.forEach(function (item) {

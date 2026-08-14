@@ -834,6 +834,37 @@
      * ESTADO PERSISTENTE (retomável em qualquer fase)
      * =================================================================== */
     var cicloExecucaoId = 0;
+    var LIMITE_RESOLUCOES_DIARIAS = 1200;
+
+    function chaveDiaLocal(agora) {
+        var data = agora instanceof Date ? agora : new Date(agora || Date.now());
+        return data.getFullYear() + '-' + String(data.getMonth() + 1).padStart(2, '0') + '-' + String(data.getDate()).padStart(2, '0');
+    }
+
+    function normalizarControleResolucoesDiarias(valor, agora) {
+        if (!valor || typeof valor !== 'object') return valor;
+        var hoje = chaveDiaLocal(agora);
+        var controle = valor.controleResolucoesDiarias;
+        if (!controle || typeof controle !== 'object' || controle.data !== hoje || !Number.isInteger(Number(controle.total)) || Number(controle.total) < 0) {
+            valor.controleResolucoesDiarias = { data: hoje, total: 0 };
+            return valor;
+        }
+        controle.total = Math.min(Number(controle.total), LIMITE_RESOLUCOES_DIARIAS);
+        return valor;
+    }
+
+    function resolucoesDiariasRestantes(valor, agora) {
+        normalizarControleResolucoesDiarias(valor, agora);
+        return Math.max(0, LIMITE_RESOLUCOES_DIARIAS - valor.controleResolucoesDiarias.total);
+    }
+
+    function reservarResolucaoDiaria(valor, agora) {
+        if (!valor || typeof valor !== 'object') return false;
+        normalizarControleResolucoesDiarias(valor, agora);
+        if (valor.controleResolucoesDiarias.total >= LIMITE_RESOLUCOES_DIARIAS) return false;
+        valor.controleResolucoesDiarias.total += 1;
+        return true;
+    }
     /* =====================================================================
      * PERSISTÊNCIA INDEXEDDB V2
      * ---------------------------------------------------------------------
@@ -915,7 +946,7 @@
         return {
             plano: null, planoTexto: '', config: null, status: 'parado', fase: 'nenhuma', modo: 'lote',
             planIndex: 0, loteInicio: 0, loteFim: 0, cadernoAtual: null,
-            biblioteca: {}, logs: [],
+            biblioteca: {}, logs: [], controleResolucoesDiarias: { data: null, total: 0 },
             mensagem: '', erro: null, retomada: false, atualizadoEm: null
         };
     }
@@ -929,6 +960,9 @@
 
     function normalizarEstadoPersistido(valor) {
         if (!valor || typeof valor !== 'object') return valor;
+        if (typeof normalizarControleResolucoesDiarias === 'function') {
+            normalizarControleResolucoesDiarias(valor);
+        }
         if (!Array.isArray(valor.logs)) valor.logs = [];
         if (valor.logs.length > 600) valor.logs = valor.logs.slice(-600);
         valor.logs.forEach(function (item) {
@@ -1724,17 +1758,31 @@
                 var resolver = Array.from(document.querySelectorAll('button')).find(function (b) {
                     return /RESOLVER QUEST[AÃ]O/i.test(b.innerText || '') && !b.disabled;
                 });
-                if (!resolver) {
-                    GabaritoInterceptor.estatisticas.semGabarito += 1;
-                    GabaritoInterceptor.ultimoMetodo = 'clique-sem-botao';
+            if (!resolver) {
+                GabaritoInterceptor.estatisticas.semGabarito += 1;
+                GabaritoInterceptor.ultimoMetodo = 'clique-sem-botao';
                     log('Clique feito, mas o botão de resolução não ficou disponível.', {
                         tipo: 'resultado', nivel: 'warn', fase: 'resolvendo',
                         contexto: Object.assign({}, contextoBase, { metodo: 'clique-sem-botao', gabarito: null })
                     });
-                    resolve(null);
-                    return;
-                }
-                log('Botão de resolução encontrado; executando clique.', {
+                resolve(null);
+                return;
+            }
+            if (!reservarResolucaoDiaria(estado)) {
+                GabaritoInterceptor.estatisticas.semGabarito += 1;
+                GabaritoInterceptor.ultimoMetodo = 'limite-diario';
+                log('Resolução interrompida: limite diário de 1.200 atingido.', {
+                    tipo: 'decisao', nivel: 'warn', fase: 'resolvendo',
+                    contexto: Object.assign({}, contextoBase, { metodo: 'limite-diario', limite: LIMITE_RESOLUCOES_DIARIAS })
+                });
+                if (typeof salvarEstado === 'function') salvarEstado(true);
+                if (typeof parar === 'function') parar();
+                if (typeof UI !== 'undefined' && UI.setStatus) UI.setStatus('Limite diário de 1.200 resoluções atingido. Retome amanhã.');
+                resolve(null);
+                return;
+            }
+            if (typeof salvarEstado === 'function') salvarEstado(true);
+            log('Botão de resolução encontrado; executando clique.', {
                     tipo: 'tentativa', fase: 'resolvendo',
                     contexto: Object.assign({}, contextoBase, { metodo: 'clique' })
                 });

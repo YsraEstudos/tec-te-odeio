@@ -112,17 +112,31 @@
                 var resolver = Array.from(document.querySelectorAll('button')).find(function (b) {
                     return /RESOLVER QUEST[AÃ]O/i.test(b.innerText || '') && !b.disabled;
                 });
-                if (!resolver) {
-                    GabaritoInterceptor.estatisticas.semGabarito += 1;
-                    GabaritoInterceptor.ultimoMetodo = 'clique-sem-botao';
+            if (!resolver) {
+                GabaritoInterceptor.estatisticas.semGabarito += 1;
+                GabaritoInterceptor.ultimoMetodo = 'clique-sem-botao';
                     log('Clique feito, mas o botão de resolução não ficou disponível.', {
                         tipo: 'resultado', nivel: 'warn', fase: 'resolvendo',
                         contexto: Object.assign({}, contextoBase, { metodo: 'clique-sem-botao', gabarito: null })
                     });
-                    resolve(null);
-                    return;
-                }
-                log('Botão de resolução encontrado; executando clique.', {
+                resolve(null);
+                return;
+            }
+            if (!reservarResolucaoDiaria(estado)) {
+                GabaritoInterceptor.estatisticas.semGabarito += 1;
+                GabaritoInterceptor.ultimoMetodo = 'limite-diario';
+                log('Resolução interrompida: limite diário de 1.200 atingido.', {
+                    tipo: 'decisao', nivel: 'warn', fase: 'resolvendo',
+                    contexto: Object.assign({}, contextoBase, { metodo: 'limite-diario', limite: LIMITE_RESOLUCOES_DIARIAS })
+                });
+                if (typeof salvarEstado === 'function') salvarEstado(true);
+                if (typeof parar === 'function') parar();
+                if (typeof UI !== 'undefined' && UI.setStatus) UI.setStatus('Limite diário de 1.200 resoluções atingido. Retome amanhã.');
+                resolve(null);
+                return;
+            }
+            if (typeof salvarEstado === 'function') salvarEstado(true);
+            log('Botão de resolução encontrado; executando clique.', {
                     tipo: 'tentativa', fase: 'resolvendo',
                     contexto: Object.assign({}, contextoBase, { metodo: 'clique' })
                 });
