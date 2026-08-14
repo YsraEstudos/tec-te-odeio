@@ -35,24 +35,26 @@
                 tipo: 'tentativa', fase: estado.fase || 'navegando',
                 contexto: { origem: origem, destino: destino }
             });
-            salvarEstado(true);
             var done = false;
             var t0 = Date.now();
-            workerTick(300, function () {
-                var cur = location.href;
-                return cur.split('?')[0] === url.split('?')[0] || Date.now() - t0 > 30000;
-            }, 30000, function () {
-                if (!done) {
-                    done = true;
-                    log('Navegação encerrada; o próximo boot continuará a fase.', {
-                        tipo: 'resultado', nivel: location.href.split('?')[0] === url.split('?')[0] ? 'ok' : 'warn',
-                        fase: estado.fase || 'navegando',
-                        contexto: { origem: origem, destino: destino, decorridoMs: Date.now() - t0 }
-                    });
-                    resolve(true);
-                }
+            Promise.resolve(salvarEstado(true)).then(function () {
+                if (done) return;
+                workerTick(300, function () {
+                    var cur = location.href;
+                    return cur.split('?')[0] === url.split('?')[0] || Date.now() - t0 > 30000;
+                }, 30000, function () {
+                    if (!done) {
+                        done = true;
+                        log('Navegação encerrada; o próximo boot continuará a fase.', {
+                            tipo: 'resultado', nivel: location.href.split('?')[0] === url.split('?')[0] ? 'ok' : 'warn',
+                            fase: estado.fase || 'navegando',
+                            contexto: { origem: origem, destino: destino, decorridoMs: Date.now() - t0 }
+                        });
+                        resolve(true);
+                    }
+                });
+                location.href = url;
             });
-            location.href = url;
         });
     }
 

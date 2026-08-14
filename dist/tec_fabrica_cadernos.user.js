@@ -850,8 +850,7 @@
     var IDB_STATE_KEY = 'state';
     var idbPromise = null;
     var saveTimer = null;
-    var saveQueued = false;
-    var saveRunning = false;
+    var saveChain = Promise.resolve();
     var saveCritical = false;
     var saveRevision = 0;
     var SAVE_DEBOUNCE_MS = 5000;
@@ -1121,15 +1120,16 @@
     }
 
     function salvarEstadoIdb(json) {
-        if (!window.indexedDB) return;
-        if (saveRunning) { saveQueued = true; return; }
-        saveRunning = true;
-        salvarSnapshot(json).catch(function (e) {
+        if (!window.indexedDB) return Promise.resolve();
+        // Serializa as transações e devolve a promessa da gravação. Isso é
+        // essencial para irPara(): uma navegação completa pode descarregar a
+        // página antes de um setTimeout(0) ou de uma transação solta terminar.
+        saveChain = saveChain.then(function () {
+            return salvarSnapshot(json);
+        }).catch(function (e) {
             console.warn('[TecFabrica] aviso: falha ao salvar no IndexedDB (' + (e && e.name || e) + ').');
-        }).then(function () {
-            saveRunning = false;
-            if (saveQueued) { saveQueued = false; salvarEstadoIdb(JSON.stringify(sanitizarParaPersistencia(estado))); }
         });
+        return saveChain;
     }
 
     function carregarEstado() {
@@ -1167,7 +1167,8 @@
         if (checkpointCritico === true) saveCritical = true;
         if (saveTimer) clearTimeout(saveTimer);
         var atraso = saveCritical ? 0 : SAVE_DEBOUNCE_MS;
-        saveTimer = setTimeout(function () {
+        return new Promise(function (resolve) {
+            saveTimer = setTimeout(function () {
             saveTimer = null; saveCritical = false;
             var snapshot;
             try { snapshot = JSON.stringify(sanitizarParaPersistencia(estado)); }
@@ -1175,10 +1176,11 @@
                 log('ERRO: falha ao serializar o estado (' + (e && e.name || e) + ').', {
                     tipo: 'erro', nivel: 'erro', persist: false
                 });
-                estado.status = 'pausado'; return;
+                estado.status = 'pausado'; resolve(); return;
             }
-            salvarEstadoIdb(snapshot);
-        }, atraso);
+            salvarEstadoIdb(snapshot).then(resolve, resolve);
+            }, atraso);
+        });
     }
 
     if (typeof window !== 'undefined') {
@@ -1232,24 +1234,26 @@
                 tipo: 'tentativa', fase: estado.fase || 'navegando',
                 contexto: { origem: origem, destino: destino }
             });
-            salvarEstado(true);
             var done = false;
             var t0 = Date.now();
-            workerTick(300, function () {
-                var cur = location.href;
-                return cur.split('?')[0] === url.split('?')[0] || Date.now() - t0 > 30000;
-            }, 30000, function () {
-                if (!done) {
-                    done = true;
-                    log('Navegação encerrada; o próximo boot continuará a fase.', {
-                        tipo: 'resultado', nivel: location.href.split('?')[0] === url.split('?')[0] ? 'ok' : 'warn',
-                        fase: estado.fase || 'navegando',
-                        contexto: { origem: origem, destino: destino, decorridoMs: Date.now() - t0 }
-                    });
-                    resolve(true);
-                }
+            Promise.resolve(salvarEstado(true)).then(function () {
+                if (done) return;
+                workerTick(300, function () {
+                    var cur = location.href;
+                    return cur.split('?')[0] === url.split('?')[0] || Date.now() - t0 > 30000;
+                }, 30000, function () {
+                    if (!done) {
+                        done = true;
+                        log('Navegação encerrada; o próximo boot continuará a fase.', {
+                            tipo: 'resultado', nivel: location.href.split('?')[0] === url.split('?')[0] ? 'ok' : 'warn',
+                            fase: estado.fase || 'navegando',
+                            contexto: { origem: origem, destino: destino, decorridoMs: Date.now() - t0 }
+                        });
+                        resolve(true);
+                    }
+                });
+                location.href = url;
             });
-            location.href = url;
         });
     }
 
@@ -2581,9 +2585,14 @@
         var materia = plano.matters[estado.planIndex];
         var idCadernoRota = paginaAtual() === 'caderno' ? cadernoIdDaUrl() : '';
         var existente = null;
-        if (idCadernoRota && estado.biblioteca[idCadernoRota]) {
-            existente = estado.biblioteca[idCadernoRota];
-        } else if (idCadernoRota && estado.cadernoAtual && String(estado.cadernoAtual.id) === String(idCadernoRota)) {
+        var cadernoDaRota = idCadernoRota ? estado.biblioteca[idCadernoRota] : null;
+        var rotaPertenceAoPlanoAtual = cadernoDaRota &&
+            normalizarTituloCaderno(cadernoDaRota.titulo) === normalizarTituloCaderno(materia.title);
+        var rotaEhCadernoAtual = idCadernoRota && estado.cadernoAtual &&
+            String(estado.cadernoAtual.id) === String(idCadernoRota);
+        if (rotaPertenceAoPlanoAtual) {
+            existente = cadernoDaRota;
+        } else if (rotaEhCadernoAtual) {
             existente = estado.cadernoAtual;
         } else {
             existente = acharCadernoPorTitulo(materia.title);
@@ -2604,7 +2613,7 @@
                 avancarMateria();
                 return;
             }
-            if (paginaAtual() !== 'caderno' || cadernoIdDaUrl() !== existente.id) {
+            if (paginaAtual() !== 'caderno' || String(cadernoIdDaUrl()) !== String(existente.id)) {
                 estado.fase = 'coletando';
                 estado.cadernoAtual = existente;
                 estado.mensagem = 'Abrindo caderno ' + existente.id + '...';

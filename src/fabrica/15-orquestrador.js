@@ -176,9 +176,14 @@
         var materia = plano.matters[estado.planIndex];
         var idCadernoRota = paginaAtual() === 'caderno' ? cadernoIdDaUrl() : '';
         var existente = null;
-        if (idCadernoRota && estado.biblioteca[idCadernoRota]) {
-            existente = estado.biblioteca[idCadernoRota];
-        } else if (idCadernoRota && estado.cadernoAtual && String(estado.cadernoAtual.id) === String(idCadernoRota)) {
+        var cadernoDaRota = idCadernoRota ? estado.biblioteca[idCadernoRota] : null;
+        var rotaPertenceAoPlanoAtual = cadernoDaRota &&
+            normalizarTituloCaderno(cadernoDaRota.titulo) === normalizarTituloCaderno(materia.title);
+        var rotaEhCadernoAtual = idCadernoRota && estado.cadernoAtual &&
+            String(estado.cadernoAtual.id) === String(idCadernoRota);
+        if (rotaPertenceAoPlanoAtual) {
+            existente = cadernoDaRota;
+        } else if (rotaEhCadernoAtual) {
             existente = estado.cadernoAtual;
         } else {
             existente = acharCadernoPorTitulo(materia.title);
@@ -199,7 +204,7 @@
                 avancarMateria();
                 return;
             }
-            if (paginaAtual() !== 'caderno' || cadernoIdDaUrl() !== existente.id) {
+            if (paginaAtual() !== 'caderno' || String(cadernoIdDaUrl()) !== String(existente.id)) {
                 estado.fase = 'coletando';
                 estado.cadernoAtual = existente;
                 estado.mensagem = 'Abrindo caderno ' + existente.id + '...';

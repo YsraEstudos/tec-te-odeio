@@ -14,8 +14,7 @@
     var IDB_STATE_KEY = 'state';
     var idbPromise = null;
     var saveTimer = null;
-    var saveQueued = false;
-    var saveRunning = false;
+    var saveChain = Promise.resolve();
     var saveCritical = false;
     var saveRevision = 0;
     var SAVE_DEBOUNCE_MS = 5000;
@@ -285,15 +284,16 @@
     }
 
     function salvarEstadoIdb(json) {
-        if (!window.indexedDB) return;
-        if (saveRunning) { saveQueued = true; return; }
-        saveRunning = true;
-        salvarSnapshot(json).catch(function (e) {
+        if (!window.indexedDB) return Promise.resolve();
+        // Serializa as transações e devolve a promessa da gravação. Isso é
+        // essencial para irPara(): uma navegação completa pode descarregar a
+        // página antes de um setTimeout(0) ou de uma transação solta terminar.
+        saveChain = saveChain.then(function () {
+            return salvarSnapshot(json);
+        }).catch(function (e) {
             console.warn('[TecFabrica] aviso: falha ao salvar no IndexedDB (' + (e && e.name || e) + ').');
-        }).then(function () {
-            saveRunning = false;
-            if (saveQueued) { saveQueued = false; salvarEstadoIdb(JSON.stringify(sanitizarParaPersistencia(estado))); }
         });
+        return saveChain;
     }
 
     function carregarEstado() {
@@ -331,18 +331,20 @@
         if (checkpointCritico === true) saveCritical = true;
         if (saveTimer) clearTimeout(saveTimer);
         var atraso = saveCritical ? 0 : SAVE_DEBOUNCE_MS;
-        saveTimer = setTimeout(function () {
-            saveTimer = null; saveCritical = false;
-            var snapshot;
-            try { snapshot = JSON.stringify(sanitizarParaPersistencia(estado)); }
-            catch (e) {
-                log('ERRO: falha ao serializar o estado (' + (e && e.name || e) + ').', {
-                    tipo: 'erro', nivel: 'erro', persist: false
-                });
-                estado.status = 'pausado'; return;
-            }
-            salvarEstadoIdb(snapshot);
-        }, atraso);
+        return new Promise(function (resolve) {
+            saveTimer = setTimeout(function () {
+                saveTimer = null; saveCritical = false;
+                var snapshot;
+                try { snapshot = JSON.stringify(sanitizarParaPersistencia(estado)); }
+                catch (e) {
+                    log('ERRO: falha ao serializar o estado (' + (e && e.name || e) + ').', {
+                        tipo: 'erro', nivel: 'erro', persist: false
+                    });
+                    estado.status = 'pausado'; resolve(); return;
+                }
+                salvarEstadoIdb(snapshot).then(resolve, resolve);
+            }, atraso);
+        });
     }
 
     if (typeof window !== 'undefined') {
