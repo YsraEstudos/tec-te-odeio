@@ -288,12 +288,17 @@
         // Serializa as transações e devolve a promessa da gravação. Isso é
         // essencial para irPara(): uma navegação completa pode descarregar a
         // página antes de um setTimeout(0) ou de uma transação solta terminar.
-        saveChain = saveChain.then(function () {
+        var anterior = saveChain.catch(function () { return false; });
+        var transacao = anterior.then(function () {
             return salvarSnapshot(json);
-        }).catch(function (e) {
-            console.warn('[TecFabrica] aviso: falha ao salvar no IndexedDB (' + (e && e.name || e) + ').');
         });
-        return saveChain;
+        saveChain = transacao.then(function () {
+            return true;
+        }, function (e) {
+            console.warn('[TecFabrica] aviso: falha ao salvar no IndexedDB (' + (e && e.name || e) + ').');
+            return false;
+        });
+        return transacao;
     }
 
     function carregarEstado() {
@@ -331,7 +336,7 @@
         if (checkpointCritico === true) saveCritical = true;
         if (saveTimer) clearTimeout(saveTimer);
         var atraso = saveCritical ? 0 : SAVE_DEBOUNCE_MS;
-        return new Promise(function (resolve) {
+        return new Promise(function (resolve, reject) {
             saveTimer = setTimeout(function () {
                 saveTimer = null; saveCritical = false;
                 var snapshot;
@@ -340,9 +345,14 @@
                     log('ERRO: falha ao serializar o estado (' + (e && e.name || e) + ').', {
                         tipo: 'erro', nivel: 'erro', persist: false
                     });
-                    estado.status = 'pausado'; resolve(); return;
+                    estado.status = 'pausado';
+                    if (checkpointCritico === true) { reject(e); return; }
+                    resolve(); return;
                 }
-                salvarEstadoIdb(snapshot).then(resolve, resolve);
+                salvarEstadoIdb(snapshot).then(resolve, function (e) {
+                    if (checkpointCritico === true) { reject(e); return; }
+                    resolve();
+                });
             }, atraso);
         });
     }

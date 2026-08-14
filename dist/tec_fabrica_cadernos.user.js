@@ -1124,12 +1124,17 @@
         // Serializa as transações e devolve a promessa da gravação. Isso é
         // essencial para irPara(): uma navegação completa pode descarregar a
         // página antes de um setTimeout(0) ou de uma transação solta terminar.
-        saveChain = saveChain.then(function () {
+        var anterior = saveChain.catch(function () { return false; });
+        var transacao = anterior.then(function () {
             return salvarSnapshot(json);
-        }).catch(function (e) {
-            console.warn('[TecFabrica] aviso: falha ao salvar no IndexedDB (' + (e && e.name || e) + ').');
         });
-        return saveChain;
+        saveChain = transacao.then(function () {
+            return true;
+        }, function (e) {
+            console.warn('[TecFabrica] aviso: falha ao salvar no IndexedDB (' + (e && e.name || e) + ').');
+            return false;
+        });
+        return transacao;
     }
 
     function carregarEstado() {
@@ -1167,7 +1172,7 @@
         if (checkpointCritico === true) saveCritical = true;
         if (saveTimer) clearTimeout(saveTimer);
         var atraso = saveCritical ? 0 : SAVE_DEBOUNCE_MS;
-        return new Promise(function (resolve) {
+        return new Promise(function (resolve, reject) {
             saveTimer = setTimeout(function () {
                 saveTimer = null; saveCritical = false;
                 var snapshot;
@@ -1176,9 +1181,14 @@
                     log('ERRO: falha ao serializar o estado (' + (e && e.name || e) + ').', {
                         tipo: 'erro', nivel: 'erro', persist: false
                     });
-                    estado.status = 'pausado'; resolve(); return;
+                    estado.status = 'pausado';
+                    if (checkpointCritico === true) { reject(e); return; }
+                    resolve(); return;
                 }
-                salvarEstadoIdb(snapshot).then(resolve, resolve);
+                salvarEstadoIdb(snapshot).then(resolve, function (e) {
+                    if (checkpointCritico === true) { reject(e); return; }
+                    resolve();
+                });
             }, atraso);
         });
     }
@@ -1238,6 +1248,15 @@
             var t0 = Date.now();
             Promise.resolve(salvarEstado(true)).then(function () {
                 if (done) return;
+                if (estado.status !== 'rodando') {
+                    done = true;
+                    log('Navegação cancelada porque a execução foi pausada antes da troca de rota.', {
+                        tipo: 'decisao', nivel: 'info', fase: estado.fase || 'navegando',
+                        contexto: { origem: origem, destino: destino, status: estado.status }
+                    });
+                    resolve(false);
+                    return;
+                }
                 workerTick(300, function () {
                     var cur = location.href;
                     return cur.split('?')[0] === url.split('?')[0] || Date.now() - t0 > 30000;
@@ -1253,6 +1272,19 @@
                     }
                 });
                 location.href = url;
+            }, function (e) {
+                done = true;
+                estado.status = 'erro';
+                estado.fase = 'nenhuma';
+                estado.erro = 'Falha ao persistir o estado antes da navegação: ' + String(e && e.message || e);
+                estado.mensagem = estado.erro;
+                log('Navegação bloqueada porque o checkpoint crítico falhou.', {
+                    tipo: 'erro', nivel: 'erro', fase: 'navegando',
+                    contexto: { origem: origem, destino: destino, motivo: estado.erro }
+                });
+                if (typeof UI !== 'undefined' && UI.setStatus) UI.setStatus(estado.mensagem);
+                if (typeof UI !== 'undefined' && UI.renderProgresso) UI.renderProgresso();
+                resolve(false);
             });
         });
     }

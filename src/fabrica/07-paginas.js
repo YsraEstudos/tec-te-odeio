@@ -39,6 +39,15 @@
             var t0 = Date.now();
             Promise.resolve(salvarEstado(true)).then(function () {
                 if (done) return;
+                if (estado.status !== 'rodando') {
+                    done = true;
+                    log('Navegação cancelada porque a execução foi pausada antes da troca de rota.', {
+                        tipo: 'decisao', nivel: 'info', fase: estado.fase || 'navegando',
+                        contexto: { origem: origem, destino: destino, status: estado.status }
+                    });
+                    resolve(false);
+                    return;
+                }
                 workerTick(300, function () {
                     var cur = location.href;
                     return cur.split('?')[0] === url.split('?')[0] || Date.now() - t0 > 30000;
@@ -54,6 +63,19 @@
                     }
                 });
                 location.href = url;
+            }, function (e) {
+                done = true;
+                estado.status = 'erro';
+                estado.fase = 'nenhuma';
+                estado.erro = 'Falha ao persistir o estado antes da navegação: ' + String(e && e.message || e);
+                estado.mensagem = estado.erro;
+                log('Navegação bloqueada porque o checkpoint crítico falhou.', {
+                    tipo: 'erro', nivel: 'erro', fase: 'navegando',
+                    contexto: { origem: origem, destino: destino, motivo: estado.erro }
+                });
+                if (typeof UI !== 'undefined' && UI.setStatus) UI.setStatus(estado.mensagem);
+                if (typeof UI !== 'undefined' && UI.renderProgresso) UI.renderProgresso();
+                resolve(false);
             });
         });
     }
