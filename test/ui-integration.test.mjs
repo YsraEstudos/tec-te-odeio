@@ -86,3 +86,26 @@ test('UI_CSS contém os contratos visuais dentro do bloco efetivamente aplicado'
   assert.match(css, /animation:none !important/);
   assert.match(css, /\.tf-tree-chevron/);
 });
+
+test('htmlExecucao exibe o saldo diário de resoluções', () => {
+  const htmlExecucao = sectionBetween('function htmlExecucao() {', 'function htmlBiblioteca() {');
+  const context = {
+    estado: {
+      plano: { matters: [{ title: 'Português' }] },
+      config: { batchSize: 1 },
+      planIndex: 0,
+      loteInicio: 0,
+      fase: 'nenhuma',
+      status: 'parado',
+      controleResolucoesDiarias: { data: '2026-08-14', total: 37 }
+    },
+    escapeHtml: (value) => String(value),
+    resumoResolucoesDiarias: () => ({
+      data: '2026-08-14', limite: 1200, usadas: 37, restantes: 1163, esgotado: false
+    })
+  };
+  vm.runInNewContext(`${htmlExecucao}\nresult = htmlExecucao();`, context);
+
+  assert.match(context.result, /id="tf-limite-diario"/);
+  assert.match(context.result, /Resoluções hoje: 37\/1200 · Restam 1163/);
+});

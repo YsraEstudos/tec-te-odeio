@@ -17,10 +17,30 @@ window.__dailyLimit = {
   chaveDiaLocal,
   normalizarControleResolucoesDiarias,
   reservarResolucaoDiaria,
-  resolucoesDiariasRestantes
+  resolucoesDiariasRestantes,
+  resumoResolucoesDiarias
 };`, context, { filename: '05-estado.js' });
   return context.window.__dailyLimit;
 }
+
+test('saldo diário expõe usadas, limite, restantes e esgotado', () => {
+  const api = loadLimitApi();
+  const agora = new Date(2026, 7, 14, 12, 0, 0);
+  const estado = {
+    controleResolucoesDiarias: {
+      data: api.chaveDiaLocal(agora),
+      total: 37
+    }
+  };
+
+  assert.deepEqual({ ...api.resumoResolucoesDiarias(estado, agora) }, {
+    data: '2026-08-14',
+    limite: 1200,
+    usadas: 37,
+    restantes: 1163,
+    esgotado: false
+  });
+});
 
 test('limite diário permite exatamente 1.200 reservas e recusa a 1.201ª', () => {
   const api = loadLimitApi();
@@ -65,6 +85,7 @@ window.__persistenceLimit = { estadoVazio, normalizarEstadoPersistido };`, conte
 test('ao atingir o limite, resolverParaGabarito não clica em Resolver questão', async () => {
   let resolverClicks = 0;
   let paused = false;
+  let progressRenders = 0;
   const radio = { click() {} };
   const label = { querySelector: () => radio };
   const resolver = { disabled: false, innerText: 'RESOLVER QUESTÃO', click() { resolverClicks += 1; } };
@@ -100,7 +121,7 @@ test('ao atingir o limite, resolverParaGabarito não clica em Resolver questão'
     workerTick: (interval, condition, timeout, callback) => callback(condition()),
     modalRecaptchaAberto: () => false,
     parar: () => { paused = true; context.estado.status = 'pausado'; },
-    UI: { setStatus() {} },
+    UI: { setStatus() {}, renderProgresso() { progressRenders += 1; } },
     log() {},
     console
   };
@@ -113,5 +134,14 @@ window.__resolutionTest = { resolverParaGabarito };`, context, { filename: '10-r
   assert.equal(result, null);
   assert.equal(resolverClicks, 0);
   assert.equal(paused, true);
+  assert.equal(progressRenders, 1);
   assert.equal(context.GabaritoInterceptor.ultimoMetodo, 'limite-diario');
+});
+
+test('reserva diária atualiza o progresso imediatamente após o sucesso', () => {
+  const reserva = resolutionSource.slice(
+    resolutionSource.indexOf('if (!reservarResolucaoDiaria(estado))'),
+    resolutionSource.indexOf('resolver.click();')
+  );
+  assert.match(reserva, /UI\.renderProgresso\(\)/);
 });

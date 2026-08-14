@@ -234,6 +234,7 @@
     function htmlExecucao() {
         var p = estado.plano;
         var c = estado.config;
+        var diario = resumoResolucoesDiarias(estado);
         if (!p) return '<div class="tf-vazio">Carregue o plano na aba Plano.</div>';
         var total = p.matters.length;
         var idx = Math.min(estado.planIndex, total);
@@ -252,6 +253,7 @@
         var msg = estado.mensagem ? '<div class="tf-status-msg">' + escapeHtml(estado.mensagem) + '</div>' : '';
         var rodando = estado.status === 'rodando';
         return '<div class="tf-status-msg" id="tf-msg">' + escapeHtml(faseTxt) + (estado.cadernoAtual ? ' · ' + escapeHtml(estado.cadernoAtual.titulo) : '') + '</div>' + msg + msgErro +
+            '<div class="tf-status-msg" id="tf-limite-diario">Resoluções hoje: ' + diario.usadas + '/' + diario.limite + ' · Restam ' + diario.restantes + '</div>' +
             '<div class="tf-secao-titulo">Progresso do plano</div>' +
             '<div class="tf-bar"><div style="width:' + pct + '%"></div></div>' +
             '<div class="tf-bar-label"><span>' + idx + ' de ' + total + ' matérias</span><span>' + pct + '%</span></div>' +

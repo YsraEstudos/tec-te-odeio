@@ -26,6 +26,18 @@
         return Math.max(0, LIMITE_RESOLUCOES_DIARIAS - valor.controleResolucoesDiarias.total);
     }
 
+    function resumoResolucoesDiarias(valor, agora) {
+        normalizarControleResolucoesDiarias(valor, agora);
+        var usadas = valor.controleResolucoesDiarias.total;
+        return {
+            data: valor.controleResolucoesDiarias.data,
+            limite: LIMITE_RESOLUCOES_DIARIAS,
+            usadas: usadas,
+            restantes: Math.max(0, LIMITE_RESOLUCOES_DIARIAS - usadas),
+            esgotado: usadas >= LIMITE_RESOLUCOES_DIARIAS
+        };
+    }
+
     function reservarResolucaoDiaria(valor, agora) {
         if (!valor || typeof valor !== 'object') return false;
         normalizarControleResolucoesDiarias(valor, agora);

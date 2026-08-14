@@ -169,10 +169,12 @@
                 if (typeof salvarEstado === 'function') salvarEstado(true);
                 if (typeof parar === 'function') parar();
                 if (typeof UI !== 'undefined' && UI.setStatus) UI.setStatus('Limite diário de 1.200 resoluções atingido. Retome amanhã.');
+                if (typeof UI !== 'undefined' && UI.renderProgresso) UI.renderProgresso();
                 resolve(null);
                 return;
             }
             if (typeof salvarEstado === 'function') salvarEstado(true);
+            if (typeof UI !== 'undefined' && UI.renderProgresso) UI.renderProgresso();
             log('Botão de resolução encontrado; executando clique.', {
                     tipo: 'tentativa', fase: 'resolvendo',
                     contexto: Object.assign({}, contextoBase, { metodo: 'clique' })
