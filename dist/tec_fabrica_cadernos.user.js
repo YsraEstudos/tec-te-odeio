@@ -98,7 +98,15 @@
         years: [2023, 2020, 2022, 2018, 2025, 2021, 2017, 2024, 2019, 2026, 2016],
         removeCancelled: true,
         removeOutdated: true,
-        usarCliqueGabarito: true
+        usarCliqueGabarito: false,
+        modoOperacao: 'stealth-offline',
+        modoColeta: 'stealth-offline',
+        perfilStealth: 'ultra-furtivo',
+        stealthWpm: 220,
+        stealthCoffeeBreakAtivo: true,
+        stealthIntervaloCoffeeBreakMin: 25,
+        stealthIntervaloCoffeeBreakMax: 40,
+        stealthCoffeeBreakDuracaoMedia: 60000
     };
 
     /* =====================================================================
@@ -290,6 +298,301 @@
         Scheduler.poll(intervalo, condicao, timeout, callback);
     }
 
+    /* =====================================================================
+     * MOTOR STEALTH & COMPORTAMENTO BIOLÓGICO HUMANO
+     * ---------------------------------------------------------------------
+     * Emulação cognitiva e física de estudante humano:
+     * 1. Distribuição Log-Normal de tempo de leitura baseada em WPM e contagem
+     *    de palavras (enunciado + alternativas);
+     * 2. Cinemática de rolagem orgânica com easing Bézier cúbico e inércia;
+     * 3. Disparo de cadeia completa de eventos de ponteiro com micro-jitter;
+     * 4. Ciclo biológico de hesitação e pausas de descanso (Coffee Break).
+     * =================================================================== */
+    var StealthEngine = (function () {
+        var posicaoCursor = { x: 120, y: 150 };
+        var questoesNoBloco = 0;
+        var metaProximoDescanso = sortearMetaDescanso();
+
+        function sortearMetaDescanso(min, max) {
+            var piso = typeof min === 'number' ? min : 25;
+            var teto = typeof max === 'number' ? max : 40;
+            return piso + Math.floor(Math.random() * (teto - piso + 1));
+        }
+
+        function boxMullerRandom(media, desvioPadrao) {
+            var m = typeof media === 'number' ? media : 0;
+            var dp = typeof desvioPadrao === 'number' ? desvioPadrao : 1;
+            var u1 = 0;
+            var u2 = 0;
+            while (u1 === 0) u1 = Math.random();
+            while (u2 === 0) u2 = Math.random();
+            var z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+            return z0 * dp + m;
+        }
+
+        function sampleLognormal(mediaDesejada, cv) {
+            var target = Math.max(100, typeof mediaDesejada === 'number' ? mediaDesejada : 1000);
+            var coefVar = typeof cv === 'number' ? cv : 0.22;
+            var variance = Math.pow(target * coefVar, 2);
+            var sigma2 = Math.log(1 + (variance / Math.pow(target, 2)));
+            var sigma = Math.sqrt(sigma2);
+            var mu = Math.log(target) - (0.5 * sigma2);
+            var z = boxMullerRandom(0, 1);
+            var amostra = Math.exp(mu + (sigma * z));
+            return Math.max(target * 0.4, Math.min(amostra, target * 2.8));
+        }
+
+        function contarPalavras(texto) {
+            if (!texto) return 0;
+            var limpo = String(texto).replace(/<[^>]*>/g, ' ').replace(/[^\w\sáàâãéèêíïóôõöúçñÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ]/g, ' ').trim();
+            if (!limpo) return 0;
+            return limpo.split(/\s+/).filter(Boolean).length;
+        }
+
+        function calcularTempoLeituraMs(questao, options) {
+            var opts = options || {};
+            var wpm = typeof opts.wpm === 'number' && opts.wpm > 50 ? opts.wpm : 220;
+            var textoEnunciado = questao ? (questao.statement || questao.statementHtml || questao.enunciado || '') : '';
+            var textoAlternativas = '';
+            if (questao && Array.isArray(questao.options)) {
+                questao.options.forEach(function (opt) {
+                    if (opt) textoAlternativas += ' ' + (opt.text || opt.texto || '');
+                });
+            } else if (questao && Array.isArray(questao.alternativas)) {
+                questao.alternativas.forEach(function (alt) {
+                    if (alt) textoAlternativas += ' ' + (alt.texto || alt.text || '');
+                });
+            }
+
+            var totalPalavras = contarPalavras(textoEnunciado) + contarPalavras(textoAlternativas);
+            if (totalPalavras < 15) totalPalavras = 15;
+
+            // Tempo base em ms proporcional a WPM (palavras por minuto)
+            var tempoLeituraBaseMs = (totalPalavras / wpm) * 60 * 1000;
+
+            // Fatores de complexidade visual / cognição
+            var multiplicadorComplexidade = 1.0;
+            if (/<table/i.test(textoEnunciado)) multiplicadorComplexidade += 0.25;
+            if (/<code|<pre/i.test(textoEnunciado)) multiplicadorComplexidade += 0.35;
+            var contagemImagens = (textoEnunciado.match(/<img/gi) || []).length;
+            var tempoImagensMs = contagemImagens * 3000;
+
+            var tempoCognitivoMedio = (tempoLeituraBaseMs * multiplicadorComplexidade) + tempoImagensMs + 1800;
+
+            // Variância Log-Normal realista
+            var tempoFinalMs = Math.round(sampleLognormal(tempoCognitivoMedio, 0.20));
+
+            // Limites fisiológicos mínimos e máximos por questão
+            var pisoMinimo = opts.perfil === 'leitura-dinamica' ? 4500 : 8000;
+            var tetoMaximo = opts.perfil === 'leitura-dinamica' ? 45000 : 90000;
+            return Math.max(pisoMinimo, Math.min(tempoFinalMs, tetoMaximo));
+        }
+
+        function cubicBezierEasing(t) {
+            return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        }
+
+        function scrollOrganico(destinoY, duracaoTotalMs) {
+            return new Promise(function (resolve) {
+                if (typeof window === 'undefined' || typeof document === 'undefined') {
+                    resolve();
+                    return;
+                }
+                var startY = window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0;
+                var distance = (destinoY || 0) - startY;
+                if (Math.abs(distance) < 20) {
+                    resolve();
+                    return;
+                }
+
+                var duracao = Math.max(400, typeof duracaoTotalMs === 'number' ? duracaoTotalMs : 1200);
+                var t0 = Date.now();
+
+                function frame() {
+                    var elapsed = Date.now() - t0;
+                    var progress = Math.min(1, elapsed / duracao);
+                    var ease = cubicBezierEasing(progress);
+                    var jitter = progress < 1 ? (Math.random() - 0.5) * 1.5 : 0;
+                    var currentY = Math.round(startY + (distance * ease) + jitter);
+
+                    try {
+                        window.scrollTo(0, currentY);
+                        window.dispatchEvent(new Event('scroll', { bubbles: true }));
+                    } catch (e) {}
+
+                    if (progress < 1) {
+                        if (typeof requestAnimationFrame === 'function') {
+                            requestAnimationFrame(frame);
+                        } else {
+                            setTimeout(frame, 16);
+                        }
+                    } else {
+                        try { window.scrollTo(0, destinoY); } catch (e2) {}
+                        resolve();
+                    }
+                }
+
+                if (typeof requestAnimationFrame === 'function') {
+                    requestAnimationFrame(frame);
+                } else {
+                    setTimeout(frame, 16);
+                }
+            });
+        }
+
+        function gerarCaminhoBezier(p0, p3, numPontos) {
+            var passos = numPontos || 20;
+            var dx = p3.x - p0.x;
+            var dy = p3.y - p0.y;
+            var dist = Math.hypot(dx, dy) || 1;
+            var normX = -dy / dist;
+            var normY = dx / dist;
+            var desvio = (Math.random() - 0.5) * dist * 0.25;
+
+            var p1 = {
+                x: p0.x + dx * (0.25 + Math.random() * 0.2) + normX * desvio,
+                y: p0.y + dy * (0.25 + Math.random() * 0.2) + normY * desvio
+            };
+            var p2 = {
+                x: p0.x + dx * (0.65 + Math.random() * 0.2) + normX * (desvio * 0.6),
+                y: p0.y + dy * (0.65 + Math.random() * 0.2) + normY * (desvio * 0.6)
+            };
+
+            var pontos = [];
+            for (var i = 0; i <= passos; i += 1) {
+                var t = i / passos;
+                var u = 1 - t;
+                var tt = t * t;
+                var uu = u * u;
+                var uuu = uu * u;
+                var ttt = tt * t;
+
+                var x = uuu * p0.x + 3 * uu * t * p1.x + 3 * u * tt * p2.x + ttt * p3.x;
+                var y = uuu * p0.y + 3 * uu * t * p1.y + 3 * u * tt * p2.y + ttt * p3.y;
+                var jitter = (Math.random() - 0.5) * 1.2;
+                pontos.push({ x: Math.round(x + jitter), y: Math.round(y + jitter) });
+            }
+            return pontos;
+        }
+
+        async function moverCursorPara(el) {
+            if (!el || typeof el.getBoundingClientRect !== 'function') return;
+            var rect = el.getBoundingClientRect();
+            var scrollX = window.scrollX || window.pageXOffset || 0;
+            var scrollY = window.scrollY || window.pageYOffset || 0;
+            var targetX = rect.left + scrollX + (rect.width * (0.3 + Math.random() * 0.4));
+            var targetY = rect.top + scrollY + (rect.height * (0.3 + Math.random() * 0.4));
+
+            var caminho = gerarCaminhoBezier(posicaoCursor, { x: targetX, y: targetY }, 12);
+            for (var i = 0; i < caminho.length; i += 1) {
+                posicaoCursor = caminho[i];
+                try {
+                    var evt = new MouseEvent('mousemove', {
+                        bubbles: true,
+                        cancelable: true,
+                        clientX: posicaoCursor.x - scrollX,
+                        clientY: posicaoCursor.y - scrollY,
+                        view: window
+                    });
+                    el.dispatchEvent(evt);
+                } catch (e) {}
+                await workerSleep(12 + Math.floor(Math.random() * 8));
+            }
+        }
+
+        async function clicarHumanizado(el) {
+            if (!el) return false;
+            await moverCursorPara(el);
+
+            var rect = (typeof el.getBoundingClientRect === 'function') ? el.getBoundingClientRect() : { left: 0, top: 0, width: 20, height: 20 };
+            var cx = Math.round(rect.left + rect.width / 2);
+            var cy = Math.round(rect.top + rect.height / 2);
+
+            var eventProps = {
+                bubbles: true,
+                cancelable: true,
+                view: (typeof window !== 'undefined' ? window : null),
+                clientX: cx,
+                clientY: cy
+            };
+
+            function despachar(tipo, Construtor) {
+                try {
+                    var Ctor = (typeof Construtor === 'function') ? Construtor : (typeof MouseEvent === 'function' ? MouseEvent : Event);
+                    el.dispatchEvent(new Ctor(tipo, eventProps));
+                } catch (e) {}
+            }
+
+            var PointerCtor = typeof PointerEvent === 'function' ? PointerEvent : MouseEvent;
+            despachar('pointerover', PointerCtor);
+            despachar('pointerenter', PointerCtor);
+            despachar('pointerdown', PointerCtor);
+            despachar('mousedown', MouseEvent);
+
+            if (typeof el.focus === 'function') {
+                try { el.focus(); } catch (e) {}
+            }
+
+            // Tempo mecânico de pressão do botão do mouse (60ms a 130ms)
+            var tempoPressao = Math.round(boxMullerRandom(90, 18));
+            await workerSleep(Math.max(50, Math.min(tempoPressao, 200)));
+
+            despachar('pointerup', PointerCtor);
+            despachar('mouseup', MouseEvent);
+            despachar('click', MouseEvent);
+
+            if (typeof el.click === 'function') {
+                try { el.click(); } catch (e) {}
+            }
+            return true;
+        }
+
+        function registrarQuestaoColetada() {
+            questoesNoBloco += 1;
+        }
+
+        function precisaDescansoBiologico(config) {
+            if (!config || config.stealthCoffeeBreakAtivo === false) return false;
+            return questoesNoBloco >= metaProximoDescanso;
+        }
+
+        function obterEstatisticasBloco() {
+            return {
+                questoesNoBloco: questoesNoBloco,
+                metaProximoDescanso: metaProximoDescanso,
+                restantesAteDescanso: Math.max(0, metaProximoDescanso - questoesNoBloco)
+            };
+        }
+
+        function resetarBlocoDescanso(config) {
+            questoesNoBloco = 0;
+            var min = config && config.stealthIntervaloCoffeeBreakMin;
+            var max = config && config.stealthIntervaloCoffeeBreakMax;
+            metaProximoDescanso = sortearMetaDescanso(min, max);
+        }
+
+        function calcularTempoDescansoMs(config) {
+            var media = (config && config.stealthCoffeeBreakDuracaoMedia) || 60000;
+            var amostra = boxMullerRandom(media, media * 0.25);
+            return Math.max(30000, Math.min(Math.round(amostra), 150000));
+        }
+
+        return {
+            boxMullerRandom: boxMullerRandom,
+            sampleLognormal: sampleLognormal,
+            contarPalavras: contarPalavras,
+            calcularTempoLeituraMs: calcularTempoLeituraMs,
+            scrollOrganico: scrollOrganico,
+            gerarCaminhoBezier: gerarCaminhoBezier,
+            moverCursorPara: moverCursorPara,
+            clicarHumanizado: clicarHumanizado,
+            registrarQuestaoColetada: registrarQuestaoColetada,
+            precisaDescansoBiologico: precisaDescansoBiologico,
+            obterEstatisticasBloco: obterEstatisticasBloco,
+            resetarBlocoDescanso: resetarBlocoDescanso,
+            calcularTempoDescansoMs: calcularTempoDescansoMs
+        };
+    })();
     /* =====================================================================
      * DOM HELPERS
      * =================================================================== */
@@ -973,7 +1276,15 @@
     function normalizarEstadoPersistido(valor) {
         if (!valor || typeof valor !== 'object') return valor;
         valor.config = valor.config && typeof valor.config === 'object' ? valor.config : {};
-        if (valor.config.modoColeta !== 'sem-gabarito-manual') valor.config.modoColeta = 'com-gabarito';
+        if (valor.config.modoColeta !== 'sem-gabarito-manual' && valor.config.modoColeta !== 'stealth-offline') {
+            valor.config.modoColeta = 'com-gabarito';
+        }
+        if (valor.config.modoColeta === 'stealth-offline') {
+            if (!valor.config.modoOperacao) valor.config.modoOperacao = 'stealth-offline';
+            if (!valor.config.perfilStealth) valor.config.perfilStealth = 'ultra-furtivo';
+            if (typeof valor.config.stealthWpm !== 'number' || valor.config.stealthWpm < 50) valor.config.stealthWpm = 220;
+            if (typeof valor.config.stealthCoffeeBreakAtivo !== 'boolean') valor.config.stealthCoffeeBreakAtivo = true;
+        }
         if (typeof normalizarControleResolucoesDiarias === 'function') {
             normalizarControleResolucoesDiarias(valor);
         }
@@ -1599,60 +1910,113 @@
         return null;
     }
 
+    function camuflarFuncaoNativa(fnSubstituta, fnOriginal, nomeNativo) {
+        try {
+            var nome = nomeNativo || (fnOriginal && fnOriginal.name) || '';
+            Object.defineProperty(fnSubstituta, 'name', { value: nome, configurable: true });
+            Object.defineProperty(fnSubstituta, 'length', { value: (fnOriginal && fnOriginal.length) || 0, configurable: true });
+            fnSubstituta.toString = function () {
+                return 'function ' + nome + '() { [native code] }';
+            };
+        } catch (e) {}
+        return fnSubstituta;
+    }
+
     var GabaritoInterceptor = {
         cache: {},          // por idQuestao → letra
         cachePorIndex: {},  // por "cadernoId:index" → letra
         instalado: false,
         ultimoMetodo: null,
         estatisticas: { viaCache: 0, viaResolucaoVisivel: 0, viaClique: 0, semGabarito: 0 },
+        processarRespostaJson: function (url, data) {
+            try {
+                var m = String(url || '').match(/\/api\/cadernos\/(\d+)\/questoes\/(\d+)/);
+                if (!m || !data) return;
+                var q = data.questao;
+                if (q && q.idQuestao != null) {
+                    var letra = extrairGabaritoDoPayload(q);
+                    log('Resposta de questão observada na rede.', {
+                        tipo: 'observacao', fase: 'coletando',
+                        contexto: { cadernoId: m[1], indice: Number(m[2]), questaoId: String(q.idQuestao) }
+                    });
+                    if (letra) {
+                        this.cache[String(q.idQuestao)] = letra;
+                        this.cachePorIndex[m[1] + ':' + m[2]] = letra;
+                        log('Gabarito capturado pela interceptação.', {
+                            tipo: 'resultado', nivel: 'ok', fase: 'resolvendo',
+                            contexto: { cadernoId: m[1], indice: Number(m[2]), questaoId: String(q.idQuestao), gabarito: letra, metodo: 'interceptacao' }
+                        });
+                    } else {
+                        log('Resposta da questão não trouxe gabarito utilizável.', {
+                            tipo: 'resultado', nivel: 'warn', fase: 'resolvendo',
+                            contexto: { cadernoId: m[1], indice: Number(m[2]), questaoId: String(q.idQuestao), gabarito: null, metodo: 'interceptacao' }
+                        });
+                    }
+                }
+            } catch (e) {
+                log('Resposta observada não pôde ser interpretada como questão.', {
+                    tipo: 'evento', nivel: 'warn', fase: 'resolvendo',
+                    contexto: { metodo: 'interceptacao', resultado: 'ignorada' }
+                });
+            }
+        },
         instalar: function () {
             if (this.instalado) return;
             this.instalado = true;
             var interceptor = this;
-            var origOpen = XMLHttpRequest.prototype.open;
-            var origSend = XMLHttpRequest.prototype.send;
-            XMLHttpRequest.prototype.open = function (method, url) {
-                this.__tecFabricaUrl = String(url || '');
-                return origOpen.apply(this, arguments);
-            };
-            XMLHttpRequest.prototype.send = function () {
-                var xhr = this;
-                this.addEventListener('load', function () {
-                    try {
-                        var m = String(xhr.__tecFabricaUrl || '').match(/\/api\/cadernos\/(\d+)\/questoes\/(\d+)/);
-                        if (m && xhr.status === 200) {
-                            var data = JSON.parse(xhr.responseText);
-                            var q = data && data.questao;
-                            if (q && q.idQuestao != null) {
-                                var letra = extrairGabaritoDoPayload(q);
-                                log('Resposta de questão observada na rede.', {
-                                    tipo: 'observacao', fase: 'coletando',
-                                    contexto: { cadernoId: m[1], indice: Number(m[2]), questaoId: String(q.idQuestao) }
-                                });
-                                if (letra) {
-                                    interceptor.cache[String(q.idQuestao)] = letra;
-                                    interceptor.cachePorIndex[m[1] + ':' + m[2]] = letra;
-                                    log('Gabarito capturado pela interceptação.', {
-                                        tipo: 'resultado', nivel: 'ok', fase: 'resolvendo',
-                                        contexto: { cadernoId: m[1], indice: Number(m[2]), questaoId: String(q.idQuestao), gabarito: letra, metodo: 'interceptacao' }
-                                    });
-                                } else {
-                                    log('Resposta da questão não trouxe gabarito utilizável.', {
-                                        tipo: 'resultado', nivel: 'warn', fase: 'resolvendo',
-                                        contexto: { cadernoId: m[1], indice: Number(m[2]), questaoId: String(q.idQuestao), gabarito: null, metodo: 'interceptacao' }
-                                    });
-                                }
+
+            // 1. Interceptação camuflada de XMLHttpRequest
+            if (typeof XMLHttpRequest !== 'undefined' && XMLHttpRequest.prototype) {
+                var origOpen = XMLHttpRequest.prototype.open;
+                var origSend = XMLHttpRequest.prototype.send;
+
+                var novoOpen = function (method, url) {
+                    this.__tecFabricaUrl = String(url || '');
+                    return origOpen.apply(this, arguments);
+                };
+                camuflarFuncaoNativa(novoOpen, origOpen, 'open');
+                XMLHttpRequest.prototype.open = novoOpen;
+
+                var novoSend = function () {
+                    var xhr = this;
+                    this.addEventListener('load', function () {
+                        try {
+                            if (xhr.status === 200 && xhr.responseText) {
+                                var data = JSON.parse(xhr.responseText);
+                                interceptor.processarRespostaJson(xhr.__tecFabricaUrl, data);
                             }
-                        }
-                    } catch (e) {
-                        log('Resposta observada não pôde ser interpretada como questão.', {
-                            tipo: 'evento', nivel: 'warn', fase: 'resolvendo',
-                            contexto: { metodo: 'interceptacao', resultado: 'ignorada' }
-                        });
+                        } catch (e) {}
+                    });
+                    return origSend.apply(this, arguments);
+                };
+                camuflarFuncaoNativa(novoSend, origSend, 'send');
+                XMLHttpRequest.prototype.send = novoSend;
+            }
+
+            // 2. Interceptação passiva de window.fetch caso utilizado
+            if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
+                var origFetch = window.fetch;
+                var novoFetch = function () {
+                    var args = arguments;
+                    var url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url ? args[0].url : '');
+                    var promessa = origFetch.apply(this, args);
+                    if (typeof promessa.then === 'function') {
+                        promessa.then(function (res) {
+                            try {
+                                if (res && res.ok && typeof res.clone === 'function') {
+                                    var clone = res.clone();
+                                    clone.json().then(function (data) {
+                                        interceptor.processarRespostaJson(url, data);
+                                    }).catch(function () {});
+                                }
+                            } catch (e) {}
+                        }).catch(function () {});
                     }
-                });
-                return origSend.apply(this, arguments);
-            };
+                    return promessa;
+                };
+                camuflarFuncaoNativa(novoFetch, origFetch, 'fetch');
+                window.fetch = novoFetch;
+            }
         },
         obterPorQuestaoId: function (id) { return this.cache[String(id)] || null; },
         obterPorIndex: function (cadernoId, index) { return this.cachePorIndex[String(cadernoId) + ':' + String(index)] || null; }
@@ -2343,8 +2707,111 @@
                     throw new Error('Não consegui extrair a questão atual.');
                 }
             }
+
+            var modoStealth = estado.config && (estado.config.modoOperacao === 'stealth-offline' || estado.config.modoColeta === 'stealth-offline');
             var existente = porId.has(String(questao.id)) ? questoesPorId.get(String(questao.id)) : null;
-            if (!existente || !existente.answer) {
+
+            if (modoStealth) {
+                // ================= MODO STEALTH OFFLINE (ZERO RESOLUÇÃO / ZERO COTA) =================
+                var doCacheStealth = mapearGabaritoParaOpcoes(GabaritoInterceptor.obterPorQuestaoId(questao.id), questao.options || []);
+                var resVisivelStealth = document.querySelector('.questao-enunciado-resolucao-errou, .questao-enunciado-resolucao-acertou');
+                var gvStealth = resVisivelStealth ? mapearGabaritoParaOpcoes(lerGabaritoDoTexto(resVisivelStealth.innerText || ''), questao.options || []) : null;
+                var gabaritoStealth = doCacheStealth || gvStealth || '';
+                var answerSourceStealth = doCacheStealth ? 'interceptacao-passiva' : (gvStealth ? 'resolucao-visivel' : 'offline-passivo');
+
+                if (existente) {
+                    if (!existente.answer && gabaritoStealth) {
+                        existente.answer = gabaritoStealth;
+                        existente.answerSource = answerSourceStealth;
+                    }
+                    if (!existente.statementHtml) existente.statementHtml = questao.statementHtml;
+                    if (!existente.statement) existente.statement = questao.statement;
+                    if (!existente.options.length) existente.options = questao.options;
+                } else {
+                    questao.answer = gabaritoStealth;
+                    questao.answerSource = answerSourceStealth;
+                    colecao.push(questao);
+                    porId.add(String(questao.id));
+                    questoesPorId.set(String(questao.id), questao);
+                }
+
+                caderno.questoes = colecao;
+                caderno.coletadas = colecao.length;
+                salvarEstado(true);
+                UI.renderBiblioteca();
+                UI.renderProgresso();
+
+                // 1. Cronometria cognitiva: tempo de leitura por contagem de palavras (WPM)
+                var tempoLeitura = (typeof StealthEngine !== 'undefined')
+                    ? StealthEngine.calcularTempoLeituraMs(questao, estado.config)
+                    : 12000;
+                var statsBloco = (typeof StealthEngine !== 'undefined')
+                    ? StealthEngine.obterEstatisticasBloco()
+                    : { restantesAteDescanso: 30 };
+
+                UI.setStatus('🛡️ Modo Furtivo: Lendo questão ' + questao.number + '/' + (caderno.total || '?') +
+                    ' (~' + Math.round(tempoLeitura / 1000) + 's) · Descanso em ' + statsBloco.restantesAteDescanso + ' q');
+
+                log('Questão coletada em modo stealth offline.', {
+                    tipo: 'resultado', nivel: 'ok', fase: 'coletando',
+                    contexto: {
+                        cadernoId: caderno.id,
+                        questaoId: questao.id,
+                        numero: questao.number,
+                        gabarito: gabaritoStealth || '(sem gabarito - offline)',
+                        tempoLeituraEstimadoMs: tempoLeitura,
+                        salvas: colecao.length
+                    }
+                });
+
+                // 2. Rolagem orgânica com inércia pelo enunciado
+                var artEl = document.querySelector('article.questao-enunciado');
+                if (artEl && typeof StealthEngine !== 'undefined') {
+                    var rectArt = artEl.getBoundingClientRect();
+                    var destinoScroll = (window.scrollY || 0) + rectArt.top + Math.min(rectArt.height * 0.6, 600);
+                    await StealthEngine.scrollOrganico(destinoScroll, Math.min(2000, Math.round(tempoLeitura * 0.3)));
+                    if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
+                }
+
+                // 3. Tempo restante de leitura com reflexão
+                var tempoRestanteLeitura = Math.max(1000, tempoLeitura - 2200);
+                await workerSleep(tempoRestanteLeitura);
+                if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
+
+                // 4. Micro-hesitação esporádica (35% de chance)
+                if (Math.random() < 0.35 && typeof StealthEngine !== 'undefined') {
+                    var microPausa = Math.round(StealthEngine.boxMullerRandom(1400, 350));
+                    await workerSleep(Math.max(500, microPausa));
+                    if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
+                }
+
+                // 5. Registro de questão no bloco de descanso
+                if (typeof StealthEngine !== 'undefined') {
+                    StealthEngine.registrarQuestaoColetada();
+                }
+
+                // 6. Verificação de Coffee Break / Pausa Biológica Periódica
+                if (typeof StealthEngine !== 'undefined' && StealthEngine.precisaDescansoBiologico(estado.config)) {
+                    var tempoDescanso = StealthEngine.calcularTempoDescansoMs(estado.config);
+                    var duracaoSeg = Math.round(tempoDescanso / 1000);
+                    log('Pausa biológica de descanso (Coffee Break) iniciada: ' + duracaoSeg + 's.', {
+                        tipo: 'observacao', fase: 'coletando',
+                        contexto: { cadernoId: caderno.id, duracaoSeg: duracaoSeg, questoesColetadas: colecao.length }
+                    });
+                    var fimDescanso = Date.now() + tempoDescanso;
+                    while (Date.now() < fimDescanso && estado.status === 'rodando') {
+                        if (meuCiclo !== cicloExecucaoId) return;
+                        var segFaltantes = Math.max(1, Math.round((fimDescanso - Date.now()) / 1000));
+                        UI.setStatus('☕ Descanso biológico (Coffee Break): ' + segFaltantes + 's restantes...');
+                        await workerSleep(1000);
+                    }
+                    if (typeof StealthEngine.resetarBlocoDescanso === 'function') {
+                        StealthEngine.resetarBlocoDescanso(estado.config);
+                    }
+                    if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
+                }
+            } else if (!existente || !existente.answer) {
+                // ================= MODO PADRÃO COM GABARITO / RESOLUÇÃO =================
                 UI.setStatus('Coletando questão ' + questao.number + '/' + (caderno.total || '?') + '...');
                 log('Tentando obter o gabarito da questão.', {
                     tipo: 'tentativa', fase: 'resolvendo',
@@ -2402,6 +2869,7 @@
                     contexto: { cadernoId: caderno.id, questaoId: questao.id, numero: questao.number, answerSource: existente.answerSource || 'desconhecido', salvas: colecao.length }
                 });
             }
+
             var pos = lerPosicao();
             if (!pos) {
                 caderno.completo = false;
@@ -2422,11 +2890,23 @@
             var total = pos.total || caderno.total;
             caderno.total = total;
             if (pos.posicao >= total) break;
-            await pausaAleatoria();
-            if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
+
+            if (!modoStealth) {
+                await pausaAleatoria();
+                if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
+            }
+
             var idAnterior = questao.id;
             var assinaturaAnterior = assinaturaQuestao();
-            if (!navegarQuestao(pos.posicao + 1)) throw new Error('Não consegui navegar para a próxima questão.');
+
+            // Navegação humanizada com eventos de ponteiro no modo stealth
+            var btnSeguinte = document.querySelector("button[ng-click*='questaoSeguinte']");
+            if (modoStealth && btnSeguinte && typeof StealthEngine !== 'undefined') {
+                await StealthEngine.clicarHumanizado(btnSeguinte);
+            } else {
+                if (!navegarQuestao(pos.posicao + 1)) throw new Error('Não consegui navegar para a próxima questão.');
+            }
+
             var mudou = await new Promise(function (resolve) { aguardarQuestaoMudar(idAnterior, assinaturaAnterior, resolve); });
             if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
             log('Resultado da navegação para a próxima questão.', {
@@ -2456,9 +2936,11 @@
                 throw new Error('A questão ' + (pos.posicao + 1) + ' não carregou a tempo.');
             }
         }
-        // Passadas de retry: questões que ficaram sem gabarito (ex: acertou ao marcar A)
+
+        // Passadas de retry: apenas para o modo com gabarito ativo
         var passadas = 0;
-        while (passadas < 2 && estado.status === 'rodando') {
+        var modoStealthAtivo = estado.config && (estado.config.modoOperacao === 'stealth-offline' || estado.config.modoColeta === 'stealth-offline');
+        while (!modoStealthAtivo && passadas < 2 && estado.status === 'rodando') {
             if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
             var pendentes = colecao.filter(function (q) { return !q.answer; });
             if (!pendentes.length) break;
@@ -4164,20 +4646,31 @@
 
     function htmlConfig() {
         var c = estado.config || {};
+        var modoAtual = c.modoColeta || c.modoOperacao || 'stealth-offline';
+        var perfilAtual = c.perfilStealth || 'ultra-furtivo';
         return '<div class="tf-secao-titulo">Pasta de destino</div>' +
             '<div class="tf-linha"><input type="text" id="tf-pasta" placeholder="ID da pasta (ex: 6423024) ou abra a página de filtros dela" value="' + (c.folderId || pastaIdDaUrl()) + '"></div>' +
             '<div class="tf-secao-titulo">Lote e ritmo</div>' +
             '<div class="tf-linha"><label style="width:130px">Matérias por lote</label><input type="number" id="tf-lote" min="1" value="' + (c.batchSize || CONFIG.batchSize) + '"></div>' +
             '<div class="tf-linha"><label style="width:130px">Pausa entre ações (s)</label><input type="text" id="tf-delay" value="' + (c.delayMin || CONFIG.delayMin) / 1000 + '-' + (c.delayMax || CONFIG.delayMax) / 1000 + '" placeholder="3-6"></div>' +
-            '<div class="tf-secao-titulo">Opções</div>' +
+            '<div class="tf-secao-titulo">Modo de Operação e Coleta</div>' +
+            '<div class="tf-linha"><select id="tf-modo-coleta">' +
+            '<option value="stealth-offline"' + (modoAtual === 'stealth-offline' ? ' selected' : '') + '>🛡️ Coleta Furtiva Offline (Sem Resolução / Gabarito Passivo)</option>' +
+            '<option value="com-gabarito"' + (modoAtual === 'com-gabarito' ? ' selected' : '') + '>✍️ Padrão com Gabarito (Resolve na página / Cota 1.200)</option>' +
+            '<option value="sem-gabarito-manual"' + (modoAtual === 'sem-gabarito-manual' ? ' selected' : '') + '>🖐️ Manual/offline — sem gabarito</option>' +
+            '</select></div>' +
+            '<div class="tf-linha"><label style="width:130px">Perfil de Leitura</label><select id="tf-perfil-stealth">' +
+            '<option value="ultra-furtivo"' + (perfilAtual === 'ultra-furtivo' ? ' selected' : '') + '>Ultra Furtivo (220 WPM · Rolagem + Descanso)</option>' +
+            '<option value="leitura-dinamica"' + (perfilAtual === 'leitura-dinamica' ? ' selected' : '') + '>Leitura Dinâmica (350 WPM · Rápido Seguro)</option>' +
+            '</select></div>' +
+            '<div class="tf-linha"><input type="checkbox" id="tf-coffee-break" ' + (c.stealthCoffeeBreakAtivo !== false ? 'checked' : '') + '><label>Pausas biológicas periódicas (Coffee Break)</label></div>' +
+            '<div class="tf-resumo">O Modo Furtivo Offline simula a velocidade real de leitura humana (WPM) e rolagem suave, sem enviar resoluções nem consumir cota diária.</div>' +
+            '<div class="tf-secao-titulo">Opções avançadas</div>' +
             '<div class="tf-linha"><input type="checkbox" id="tf-coletar" ' + ((c.coletarAposCriar !== false) ? 'checked' : '') + '><label>Copiar questões após criar cada caderno</label></div>' +
             '<div class="tf-linha"><input type="checkbox" id="tf-auto" ' + (c.autoContinuarLote ? 'checked' : '') + '><label>Continuar lotes automaticamente</label></div>' +
             '<div class="tf-linha"><input type="checkbox" id="tf-anuladas" ' + ((c.removeCancelled !== false) ? 'checked' : '') + '><label>Remover questões anuladas</label></div>' +
             '<div class="tf-linha"><input type="checkbox" id="tf-desatualizadas" ' + ((c.removeOutdated !== false) ? 'checked' : '') + '><label>Remover questões desatualizadas</label></div>' +
-            '<div class="tf-linha"><input type="checkbox" id="tf-clique-gabarito" ' + ((c.usarCliqueGabarito !== false) ? 'checked' : '') + '><label>Clique para obter gabarito (necessário em questões novas)</label></div>' +
-            '<div class="tf-secao-titulo">Modo de coleta</div>' +
-            '<div class="tf-linha"><select id="tf-modo-coleta"><option value="com-gabarito"' + (c.modoColeta === 'sem-gabarito-manual' ? '' : ' selected') + '>Com gabarito</option><option value="sem-gabarito-manual"' + (c.modoColeta === 'sem-gabarito-manual' ? ' selected' : '') + '>Manual/offline — sem gabarito</option></select></div>' +
-            '<div class="tf-resumo">Manual/offline — sem gabarito salva somente a questão atualmente visível; não executa cliques automáticos nem navegação.</div>' +
+            '<div class="tf-linha"><input type="checkbox" id="tf-clique-gabarito" ' + ((c.usarCliqueGabarito !== false) ? 'checked' : '') + '><label>Clique para obter gabarito (apenas no modo Com Gabarito)</label></div>' +
             '<div class="tf-secao-titulo">Bancas (uma por linha)</div>' +
             '<textarea id="tf-bancas" style="min-height:80px">' + (c.banks || CONFIG.banks).join('\n') + '</textarea>' +
             '<div class="tf-secao-titulo">Anos (separados por vírgula)</div>' +
@@ -4208,7 +4701,8 @@
         var msgErro = estado.erro ? '<div class="tf-status-msg erro">' + escapeHtml(estado.erro) + '</div>' : '';
         var msg = estado.mensagem ? '<div class="tf-status-msg">' + escapeHtml(estado.mensagem) + '</div>' : '';
         var rodando = estado.status === 'rodando';
-        return '<div class="tf-status-msg" id="tf-msg">' + escapeHtml(faseTxt) + (estado.cadernoAtual ? ' · ' + escapeHtml(estado.cadernoAtual.titulo) : '') + '</div>' + msg + msgErro +
+        var modoLabel = (c && (c.modoOperacao === 'stealth-offline' || c.modoColeta === 'stealth-offline')) ? '🛡️ Modo Furtivo Offline' : ((c && c.modoColeta === 'sem-gabarito-manual') ? '🖐️ Manual Offline' : '✍️ Com Resolução');
+        return '<div class="tf-status-msg" id="tf-msg">' + escapeHtml(faseTxt) + (estado.cadernoAtual ? ' · ' + escapeHtml(estado.cadernoAtual.titulo) : '') + ' · <small>' + modoLabel + '</small></div>' + msg + msgErro +
             '<div class="tf-status-msg" id="tf-limite-diario">Resoluções hoje: ' + diario.usadas + '/' + diario.limite + ' · Restam ' + diario.restantes + '</div>' +
             '<div class="tf-secao-titulo">Progresso do plano</div>' +
             '<div class="tf-bar"><div style="width:' + pct + '%"></div></div>' +
@@ -4358,7 +4852,16 @@
                 cfg.removeCancelled = corpo.querySelector('#tf-anuladas').checked;
                 cfg.removeOutdated = corpo.querySelector('#tf-desatualizadas').checked;
                 cfg.usarCliqueGabarito = corpo.querySelector('#tf-clique-gabarito').checked;
-                cfg.modoColeta = corpo.querySelector('#tf-modo-coleta').value === 'sem-gabarito-manual' ? 'sem-gabarito-manual' : 'com-gabarito';
+                var modoVal = corpo.querySelector('#tf-modo-coleta').value;
+                cfg.modoColeta = (modoVal === 'sem-gabarito-manual' || modoVal === 'stealth-offline') ? modoVal : 'com-gabarito';
+                cfg.modoOperacao = cfg.modoColeta;
+                var perfilEl = corpo.querySelector('#tf-perfil-stealth');
+                if (perfilEl) {
+                    cfg.perfilStealth = perfilEl.value;
+                    cfg.stealthWpm = cfg.perfilStealth === 'leitura-dinamica' ? 350 : 220;
+                }
+                var cbEl = corpo.querySelector('#tf-coffee-break');
+                if (cbEl) cfg.stealthCoffeeBreakAtivo = cbEl.checked;
                 cfg.banks = corpo.querySelector('#tf-bancas').value.split('\n').map(clean).filter(Boolean);
                 cfg.years = corpo.querySelector('#tf-anos').value.split(',').map(function (y) { return parseInt(y, 10); }).filter(function (y) { return y >= 1900 && y <= 2100; });
                 if (cfg.banks.length < 1) throw new Error('Informe ao menos uma banca.');
@@ -4368,7 +4871,7 @@
                 estado.config = cfg;
                 salvarEstado();
                 aviso.innerHTML = '<div class="tf-resumo" style="border-color:#166534;background:#052e16;color:#bbf7d0">Configuração salva</div>';
-                log('Configuração salva: pasta ' + (cfg.folderId || '(vazio)') + ', lote ' + cfg.batchSize + ', ' + cfg.banks.length + ' bancas, ' + cfg.years.length + ' anos.');
+                log('Configuração salva: pasta ' + (cfg.folderId || '(vazio)') + ', modo ' + cfg.modoColeta + ' (' + (cfg.perfilStealth || 'ultra-furtivo') + '), lote ' + cfg.batchSize + ', ' + cfg.banks.length + ' bancas.');
             } catch (e) {
                 aviso.innerHTML = '<div class="tf-status-msg erro">' + escapeHtml(e.message) + '</div>';
             }

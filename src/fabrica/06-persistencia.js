@@ -94,7 +94,15 @@
     function normalizarEstadoPersistido(valor) {
         if (!valor || typeof valor !== 'object') return valor;
         valor.config = valor.config && typeof valor.config === 'object' ? valor.config : {};
-        if (valor.config.modoColeta !== 'sem-gabarito-manual') valor.config.modoColeta = 'com-gabarito';
+        if (valor.config.modoColeta !== 'sem-gabarito-manual' && valor.config.modoColeta !== 'stealth-offline') {
+            valor.config.modoColeta = 'com-gabarito';
+        }
+        if (valor.config.modoColeta === 'stealth-offline') {
+            if (!valor.config.modoOperacao) valor.config.modoOperacao = 'stealth-offline';
+            if (!valor.config.perfilStealth) valor.config.perfilStealth = 'ultra-furtivo';
+            if (typeof valor.config.stealthWpm !== 'number' || valor.config.stealthWpm < 50) valor.config.stealthWpm = 220;
+            if (typeof valor.config.stealthCoffeeBreakAtivo !== 'boolean') valor.config.stealthCoffeeBreakAtivo = true;
+        }
         if (typeof normalizarControleResolucoesDiarias === 'function') {
             normalizarControleResolucoesDiarias(valor);
         }

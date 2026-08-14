@@ -497,8 +497,54 @@
      * ============================================================ */
     var pararSolicitado = false;
 
-    function pausaAleatoria() {
-        var ms = CONFIG.delayMin + Math.random() * (CONFIG.delayMax - CONFIG.delayMin);
+    function boxMullerRandom(media, desvioPadrao) {
+        var m = typeof media === 'number' ? media : 0;
+        var dp = typeof desvioPadrao === 'number' ? desvioPadrao : 1;
+        var u1 = 0, u2 = 0;
+        while (u1 === 0) u1 = Math.random();
+        while (u2 === 0) u2 = Math.random();
+        var z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+        return z0 * dp + m;
+    }
+
+    function sampleLognormal(mediaDesejada, cv) {
+        var target = Math.max(100, typeof mediaDesejada === 'number' ? mediaDesejada : 1000);
+        var coefVar = typeof cv === 'number' ? cv : 0.22;
+        var variance = Math.pow(target * coefVar, 2);
+        var sigma2 = Math.log(1 + (variance / Math.pow(target, 2)));
+        var sigma = Math.sqrt(sigma2);
+        var mu = Math.log(target) - (0.5 * sigma2);
+        var z = boxMullerRandom(0, 1);
+        var amostra = Math.exp(mu + (sigma * z));
+        return Math.max(target * 0.4, Math.min(amostra, target * 2.8));
+    }
+
+    function contarPalavras(texto) {
+        if (!texto) return 0;
+        var limpo = String(texto).replace(/<[^>]*>/g, ' ').replace(/[^\w\sáàâãéèêíïóôõöúçñÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ]/g, ' ').trim();
+        return limpo ? limpo.split(/\s+/).filter(Boolean).length : 0;
+    }
+
+    function calcularTempoLeituraQuestao(questao) {
+        var textoEnunciado = questao ? (questao.enunciado || '') : '';
+        var textoAlternativas = '';
+        if (questao && Array.isArray(questao.alternativas)) {
+            questao.alternativas.forEach(function (alt) {
+                if (alt) textoAlternativas += ' ' + (alt.texto || '');
+            });
+        }
+        var totalPalavras = Math.max(15, contarPalavras(textoEnunciado) + contarPalavras(textoAlternativas));
+        var tempoBaseMs = (totalPalavras / 220) * 60 * 1000;
+        var complexidade = 1.0;
+        if (/<table/i.test(textoEnunciado)) complexidade += 0.25;
+        if (/<code|<pre/i.test(textoEnunciado)) complexidade += 0.35;
+        var tempoCognitivo = (tempoBaseMs * complexidade) + 1500;
+        var tempoFinalMs = Math.round(sampleLognormal(tempoCognitivo, 0.20));
+        return Math.max(CONFIG.delayMin || 5000, Math.min(tempoFinalMs, 60000));
+    }
+
+    function pausaAleatoria(questao) {
+        var ms = questao ? calcularTempoLeituraQuestao(questao) : (CONFIG.delayMin + Math.random() * (CONFIG.delayMax - CONFIG.delayMin));
         return workerSleep(Math.round(ms));
     }
 
@@ -563,7 +609,7 @@
             }
 
             atualizarPainel();
-            pausaAleatoria().then(function () {
+            pausaAleatoria(questao).then(function () {
                 if (pararSolicitado || estado.status !== 'coletando') return;
                 var idAtual = estado.ultimaQuestaoId;
                 var assinaturaAtual = assinaturaQuestao();

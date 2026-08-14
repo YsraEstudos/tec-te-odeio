@@ -106,8 +106,111 @@
                     throw new Error('Não consegui extrair a questão atual.');
                 }
             }
+
+            var modoStealth = estado.config && (estado.config.modoOperacao === 'stealth-offline' || estado.config.modoColeta === 'stealth-offline');
             var existente = porId.has(String(questao.id)) ? questoesPorId.get(String(questao.id)) : null;
-            if (!existente || !existente.answer) {
+
+            if (modoStealth) {
+                // ================= MODO STEALTH OFFLINE (ZERO RESOLUÇÃO / ZERO COTA) =================
+                var doCacheStealth = mapearGabaritoParaOpcoes(GabaritoInterceptor.obterPorQuestaoId(questao.id), questao.options || []);
+                var resVisivelStealth = document.querySelector('.questao-enunciado-resolucao-errou, .questao-enunciado-resolucao-acertou');
+                var gvStealth = resVisivelStealth ? mapearGabaritoParaOpcoes(lerGabaritoDoTexto(resVisivelStealth.innerText || ''), questao.options || []) : null;
+                var gabaritoStealth = doCacheStealth || gvStealth || '';
+                var answerSourceStealth = doCacheStealth ? 'interceptacao-passiva' : (gvStealth ? 'resolucao-visivel' : 'offline-passivo');
+
+                if (existente) {
+                    if (!existente.answer && gabaritoStealth) {
+                        existente.answer = gabaritoStealth;
+                        existente.answerSource = answerSourceStealth;
+                    }
+                    if (!existente.statementHtml) existente.statementHtml = questao.statementHtml;
+                    if (!existente.statement) existente.statement = questao.statement;
+                    if (!existente.options.length) existente.options = questao.options;
+                } else {
+                    questao.answer = gabaritoStealth;
+                    questao.answerSource = answerSourceStealth;
+                    colecao.push(questao);
+                    porId.add(String(questao.id));
+                    questoesPorId.set(String(questao.id), questao);
+                }
+
+                caderno.questoes = colecao;
+                caderno.coletadas = colecao.length;
+                salvarEstado(true);
+                UI.renderBiblioteca();
+                UI.renderProgresso();
+
+                // 1. Cronometria cognitiva: tempo de leitura por contagem de palavras (WPM)
+                var tempoLeitura = (typeof StealthEngine !== 'undefined')
+                    ? StealthEngine.calcularTempoLeituraMs(questao, estado.config)
+                    : 12000;
+                var statsBloco = (typeof StealthEngine !== 'undefined')
+                    ? StealthEngine.obterEstatisticasBloco()
+                    : { restantesAteDescanso: 30 };
+
+                UI.setStatus('🛡️ Modo Furtivo: Lendo questão ' + questao.number + '/' + (caderno.total || '?') +
+                    ' (~' + Math.round(tempoLeitura / 1000) + 's) · Descanso em ' + statsBloco.restantesAteDescanso + ' q');
+
+                log('Questão coletada em modo stealth offline.', {
+                    tipo: 'resultado', nivel: 'ok', fase: 'coletando',
+                    contexto: {
+                        cadernoId: caderno.id,
+                        questaoId: questao.id,
+                        numero: questao.number,
+                        gabarito: gabaritoStealth || '(sem gabarito - offline)',
+                        tempoLeituraEstimadoMs: tempoLeitura,
+                        salvas: colecao.length
+                    }
+                });
+
+                // 2. Rolagem orgânica com inércia pelo enunciado
+                var artEl = document.querySelector('article.questao-enunciado');
+                if (artEl && typeof StealthEngine !== 'undefined') {
+                    var rectArt = artEl.getBoundingClientRect();
+                    var destinoScroll = (window.scrollY || 0) + rectArt.top + Math.min(rectArt.height * 0.6, 600);
+                    await StealthEngine.scrollOrganico(destinoScroll, Math.min(2000, Math.round(tempoLeitura * 0.3)));
+                    if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
+                }
+
+                // 3. Tempo restante de leitura com reflexão
+                var tempoRestanteLeitura = Math.max(1000, tempoLeitura - 2200);
+                await workerSleep(tempoRestanteLeitura);
+                if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
+
+                // 4. Micro-hesitação esporádica (35% de chance)
+                if (Math.random() < 0.35 && typeof StealthEngine !== 'undefined') {
+                    var microPausa = Math.round(StealthEngine.boxMullerRandom(1400, 350));
+                    await workerSleep(Math.max(500, microPausa));
+                    if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
+                }
+
+                // 5. Registro de questão no bloco de descanso
+                if (typeof StealthEngine !== 'undefined') {
+                    StealthEngine.registrarQuestaoColetada();
+                }
+
+                // 6. Verificação de Coffee Break / Pausa Biológica Periódica
+                if (typeof StealthEngine !== 'undefined' && StealthEngine.precisaDescansoBiologico(estado.config)) {
+                    var tempoDescanso = StealthEngine.calcularTempoDescansoMs(estado.config);
+                    var duracaoSeg = Math.round(tempoDescanso / 1000);
+                    log('Pausa biológica de descanso (Coffee Break) iniciada: ' + duracaoSeg + 's.', {
+                        tipo: 'observacao', fase: 'coletando',
+                        contexto: { cadernoId: caderno.id, duracaoSeg: duracaoSeg, questoesColetadas: colecao.length }
+                    });
+                    var fimDescanso = Date.now() + tempoDescanso;
+                    while (Date.now() < fimDescanso && estado.status === 'rodando') {
+                        if (meuCiclo !== cicloExecucaoId) return;
+                        var segFaltantes = Math.max(1, Math.round((fimDescanso - Date.now()) / 1000));
+                        UI.setStatus('☕ Descanso biológico (Coffee Break): ' + segFaltantes + 's restantes...');
+                        await workerSleep(1000);
+                    }
+                    if (typeof StealthEngine.resetarBlocoDescanso === 'function') {
+                        StealthEngine.resetarBlocoDescanso(estado.config);
+                    }
+                    if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
+                }
+            } else if (!existente || !existente.answer) {
+                // ================= MODO PADRÃO COM GABARITO / RESOLUÇÃO =================
                 UI.setStatus('Coletando questão ' + questao.number + '/' + (caderno.total || '?') + '...');
                 log('Tentando obter o gabarito da questão.', {
                     tipo: 'tentativa', fase: 'resolvendo',
@@ -165,6 +268,7 @@
                     contexto: { cadernoId: caderno.id, questaoId: questao.id, numero: questao.number, answerSource: existente.answerSource || 'desconhecido', salvas: colecao.length }
                 });
             }
+
             var pos = lerPosicao();
             if (!pos) {
                 caderno.completo = false;
@@ -185,11 +289,23 @@
             var total = pos.total || caderno.total;
             caderno.total = total;
             if (pos.posicao >= total) break;
-            await pausaAleatoria();
-            if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
+
+            if (!modoStealth) {
+                await pausaAleatoria();
+                if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
+            }
+
             var idAnterior = questao.id;
             var assinaturaAnterior = assinaturaQuestao();
-            if (!navegarQuestao(pos.posicao + 1)) throw new Error('Não consegui navegar para a próxima questão.');
+
+            // Navegação humanizada com eventos de ponteiro no modo stealth
+            var btnSeguinte = document.querySelector("button[ng-click*='questaoSeguinte']");
+            if (modoStealth && btnSeguinte && typeof StealthEngine !== 'undefined') {
+                await StealthEngine.clicarHumanizado(btnSeguinte);
+            } else {
+                if (!navegarQuestao(pos.posicao + 1)) throw new Error('Não consegui navegar para a próxima questão.');
+            }
+
             var mudou = await new Promise(function (resolve) { aguardarQuestaoMudar(idAnterior, assinaturaAnterior, resolve); });
             if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
             log('Resultado da navegação para a próxima questão.', {
@@ -219,9 +335,11 @@
                 throw new Error('A questão ' + (pos.posicao + 1) + ' não carregou a tempo.');
             }
         }
-        // Passadas de retry: questões que ficaram sem gabarito (ex: acertou ao marcar A)
+
+        // Passadas de retry: apenas para o modo com gabarito ativo
         var passadas = 0;
-        while (passadas < 2 && estado.status === 'rodando') {
+        var modoStealthAtivo = estado.config && (estado.config.modoOperacao === 'stealth-offline' || estado.config.modoColeta === 'stealth-offline');
+        while (!modoStealthAtivo && passadas < 2 && estado.status === 'rodando') {
             if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
             var pendentes = colecao.filter(function (q) { return !q.answer; });
             if (!pendentes.length) break;

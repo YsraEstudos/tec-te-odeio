@@ -52,6 +52,12 @@
       "lines": "62-95"
     },
     {
+      "id": "02-stealth",
+      "file": "02-stealth.js",
+      "section": "MOTOR STEALTH & COMPORTAMENTO BIOLÓGICO HUMANO",
+      "lines": ""
+    },
+    {
       "id": "03",
       "file": "03-dom-helpers.js",
       "section": "DOM HELPERS",

@@ -211,20 +211,31 @@
 
     function htmlConfig() {
         var c = estado.config || {};
+        var modoAtual = c.modoColeta || c.modoOperacao || 'stealth-offline';
+        var perfilAtual = c.perfilStealth || 'ultra-furtivo';
         return '<div class="tf-secao-titulo">Pasta de destino</div>' +
             '<div class="tf-linha"><input type="text" id="tf-pasta" placeholder="ID da pasta (ex: 6423024) ou abra a página de filtros dela" value="' + (c.folderId || pastaIdDaUrl()) + '"></div>' +
             '<div class="tf-secao-titulo">Lote e ritmo</div>' +
             '<div class="tf-linha"><label style="width:130px">Matérias por lote</label><input type="number" id="tf-lote" min="1" value="' + (c.batchSize || CONFIG.batchSize) + '"></div>' +
             '<div class="tf-linha"><label style="width:130px">Pausa entre ações (s)</label><input type="text" id="tf-delay" value="' + (c.delayMin || CONFIG.delayMin) / 1000 + '-' + (c.delayMax || CONFIG.delayMax) / 1000 + '" placeholder="3-6"></div>' +
-            '<div class="tf-secao-titulo">Opções</div>' +
+            '<div class="tf-secao-titulo">Modo de Operação e Coleta</div>' +
+            '<div class="tf-linha"><select id="tf-modo-coleta">' +
+            '<option value="stealth-offline"' + (modoAtual === 'stealth-offline' ? ' selected' : '') + '>🛡️ Coleta Furtiva Offline (Sem Resolução / Gabarito Passivo)</option>' +
+            '<option value="com-gabarito"' + (modoAtual === 'com-gabarito' ? ' selected' : '') + '>✍️ Padrão com Gabarito (Resolve na página / Cota 1.200)</option>' +
+            '<option value="sem-gabarito-manual"' + (modoAtual === 'sem-gabarito-manual' ? ' selected' : '') + '>🖐️ Manual/offline — sem gabarito</option>' +
+            '</select></div>' +
+            '<div class="tf-linha"><label style="width:130px">Perfil de Leitura</label><select id="tf-perfil-stealth">' +
+            '<option value="ultra-furtivo"' + (perfilAtual === 'ultra-furtivo' ? ' selected' : '') + '>Ultra Furtivo (220 WPM · Rolagem + Descanso)</option>' +
+            '<option value="leitura-dinamica"' + (perfilAtual === 'leitura-dinamica' ? ' selected' : '') + '>Leitura Dinâmica (350 WPM · Rápido Seguro)</option>' +
+            '</select></div>' +
+            '<div class="tf-linha"><input type="checkbox" id="tf-coffee-break" ' + (c.stealthCoffeeBreakAtivo !== false ? 'checked' : '') + '><label>Pausas biológicas periódicas (Coffee Break)</label></div>' +
+            '<div class="tf-resumo">O Modo Furtivo Offline simula a velocidade real de leitura humana (WPM) e rolagem suave, sem enviar resoluções nem consumir cota diária.</div>' +
+            '<div class="tf-secao-titulo">Opções avançadas</div>' +
             '<div class="tf-linha"><input type="checkbox" id="tf-coletar" ' + ((c.coletarAposCriar !== false) ? 'checked' : '') + '><label>Copiar questões após criar cada caderno</label></div>' +
             '<div class="tf-linha"><input type="checkbox" id="tf-auto" ' + (c.autoContinuarLote ? 'checked' : '') + '><label>Continuar lotes automaticamente</label></div>' +
             '<div class="tf-linha"><input type="checkbox" id="tf-anuladas" ' + ((c.removeCancelled !== false) ? 'checked' : '') + '><label>Remover questões anuladas</label></div>' +
             '<div class="tf-linha"><input type="checkbox" id="tf-desatualizadas" ' + ((c.removeOutdated !== false) ? 'checked' : '') + '><label>Remover questões desatualizadas</label></div>' +
-            '<div class="tf-linha"><input type="checkbox" id="tf-clique-gabarito" ' + ((c.usarCliqueGabarito !== false) ? 'checked' : '') + '><label>Clique para obter gabarito (necessário em questões novas)</label></div>' +
-            '<div class="tf-secao-titulo">Modo de coleta</div>' +
-            '<div class="tf-linha"><select id="tf-modo-coleta"><option value="com-gabarito"' + (c.modoColeta === 'sem-gabarito-manual' ? '' : ' selected') + '>Com gabarito</option><option value="sem-gabarito-manual"' + (c.modoColeta === 'sem-gabarito-manual' ? ' selected' : '') + '>Manual/offline — sem gabarito</option></select></div>' +
-            '<div class="tf-resumo">Manual/offline — sem gabarito salva somente a questão atualmente visível; não executa cliques automáticos nem navegação.</div>' +
+            '<div class="tf-linha"><input type="checkbox" id="tf-clique-gabarito" ' + ((c.usarCliqueGabarito !== false) ? 'checked' : '') + '><label>Clique para obter gabarito (apenas no modo Com Gabarito)</label></div>' +
             '<div class="tf-secao-titulo">Bancas (uma por linha)</div>' +
             '<textarea id="tf-bancas" style="min-height:80px">' + (c.banks || CONFIG.banks).join('\n') + '</textarea>' +
             '<div class="tf-secao-titulo">Anos (separados por vírgula)</div>' +
@@ -255,7 +266,8 @@
         var msgErro = estado.erro ? '<div class="tf-status-msg erro">' + escapeHtml(estado.erro) + '</div>' : '';
         var msg = estado.mensagem ? '<div class="tf-status-msg">' + escapeHtml(estado.mensagem) + '</div>' : '';
         var rodando = estado.status === 'rodando';
-        return '<div class="tf-status-msg" id="tf-msg">' + escapeHtml(faseTxt) + (estado.cadernoAtual ? ' · ' + escapeHtml(estado.cadernoAtual.titulo) : '') + '</div>' + msg + msgErro +
+        var modoLabel = (c && (c.modoOperacao === 'stealth-offline' || c.modoColeta === 'stealth-offline')) ? '🛡️ Modo Furtivo Offline' : ((c && c.modoColeta === 'sem-gabarito-manual') ? '🖐️ Manual Offline' : '✍️ Com Resolução');
+        return '<div class="tf-status-msg" id="tf-msg">' + escapeHtml(faseTxt) + (estado.cadernoAtual ? ' · ' + escapeHtml(estado.cadernoAtual.titulo) : '') + ' · <small>' + modoLabel + '</small></div>' + msg + msgErro +
             '<div class="tf-status-msg" id="tf-limite-diario">Resoluções hoje: ' + diario.usadas + '/' + diario.limite + ' · Restam ' + diario.restantes + '</div>' +
             '<div class="tf-secao-titulo">Progresso do plano</div>' +
             '<div class="tf-bar"><div style="width:' + pct + '%"></div></div>' +
@@ -405,7 +417,16 @@
                 cfg.removeCancelled = corpo.querySelector('#tf-anuladas').checked;
                 cfg.removeOutdated = corpo.querySelector('#tf-desatualizadas').checked;
                 cfg.usarCliqueGabarito = corpo.querySelector('#tf-clique-gabarito').checked;
-                cfg.modoColeta = corpo.querySelector('#tf-modo-coleta').value === 'sem-gabarito-manual' ? 'sem-gabarito-manual' : 'com-gabarito';
+                var modoVal = corpo.querySelector('#tf-modo-coleta').value;
+                cfg.modoColeta = (modoVal === 'sem-gabarito-manual' || modoVal === 'stealth-offline') ? modoVal : 'com-gabarito';
+                cfg.modoOperacao = cfg.modoColeta;
+                var perfilEl = corpo.querySelector('#tf-perfil-stealth');
+                if (perfilEl) {
+                    cfg.perfilStealth = perfilEl.value;
+                    cfg.stealthWpm = cfg.perfilStealth === 'leitura-dinamica' ? 350 : 220;
+                }
+                var cbEl = corpo.querySelector('#tf-coffee-break');
+                if (cbEl) cfg.stealthCoffeeBreakAtivo = cbEl.checked;
                 cfg.banks = corpo.querySelector('#tf-bancas').value.split('\n').map(clean).filter(Boolean);
                 cfg.years = corpo.querySelector('#tf-anos').value.split(',').map(function (y) { return parseInt(y, 10); }).filter(function (y) { return y >= 1900 && y <= 2100; });
                 if (cfg.banks.length < 1) throw new Error('Informe ao menos uma banca.');
@@ -415,7 +436,7 @@
                 estado.config = cfg;
                 salvarEstado();
                 aviso.innerHTML = '<div class="tf-resumo" style="border-color:#166534;background:#052e16;color:#bbf7d0">Configuração salva</div>';
-                log('Configuração salva: pasta ' + (cfg.folderId || '(vazio)') + ', lote ' + cfg.batchSize + ', ' + cfg.banks.length + ' bancas, ' + cfg.years.length + ' anos.');
+                log('Configuração salva: pasta ' + (cfg.folderId || '(vazio)') + ', modo ' + cfg.modoColeta + ' (' + (cfg.perfilStealth || 'ultra-furtivo') + '), lote ' + cfg.batchSize + ', ' + cfg.banks.length + ' bancas.');
             } catch (e) {
                 aviso.innerHTML = '<div class="tf-status-msg erro">' + escapeHtml(e.message) + '</div>';
             }
