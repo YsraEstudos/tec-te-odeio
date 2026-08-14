@@ -17,6 +17,9 @@ test('build gera artefato válido e APIs globais', () => {
   for (const api of ['__TecFabrica', '__TecFabricaExport', '__TecFabricaUI']) {
     assert.match(source, new RegExp(`window\\.${api}\\s*=`));
   }
+  for (const contract of ['data-filter="subject"', 'data-filter="bank"', 'data-acao="txt"', 'data-acao="pdf"']) {
+    assert.match(source, new RegExp(contract));
+  }
   const check = spawnSync(process.execPath, ['--check', dist], { encoding: 'utf8' });
   assert.equal(check.status, 0, check.stderr);
 });

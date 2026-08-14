@@ -858,6 +858,18 @@
         return Math.max(0, LIMITE_RESOLUCOES_DIARIAS - valor.controleResolucoesDiarias.total);
     }
 
+    function resumoResolucoesDiarias(valor, agora) {
+        normalizarControleResolucoesDiarias(valor, agora);
+        var usadas = valor.controleResolucoesDiarias.total;
+        return {
+            data: valor.controleResolucoesDiarias.data,
+            limite: LIMITE_RESOLUCOES_DIARIAS,
+            usadas: usadas,
+            restantes: Math.max(0, LIMITE_RESOLUCOES_DIARIAS - usadas),
+            esgotado: usadas >= LIMITE_RESOLUCOES_DIARIAS
+        };
+    }
+
     function reservarResolucaoDiaria(valor, agora) {
         if (!valor || typeof valor !== 'object') return false;
         normalizarControleResolucoesDiarias(valor, agora);
@@ -960,6 +972,8 @@
 
     function normalizarEstadoPersistido(valor) {
         if (!valor || typeof valor !== 'object') return valor;
+        valor.config = valor.config && typeof valor.config === 'object' ? valor.config : {};
+        if (valor.config.modoColeta !== 'sem-gabarito-manual') valor.config.modoColeta = 'com-gabarito';
         if (typeof normalizarControleResolucoesDiarias === 'function') {
             normalizarControleResolucoesDiarias(valor);
         }
@@ -1815,10 +1829,12 @@
                 if (typeof salvarEstado === 'function') salvarEstado(true);
                 if (typeof parar === 'function') parar();
                 if (typeof UI !== 'undefined' && UI.setStatus) UI.setStatus('Limite diário de 1.200 resoluções atingido. Retome amanhã.');
+                if (typeof UI !== 'undefined' && UI.renderProgresso) UI.renderProgresso();
                 resolve(null);
                 return;
             }
             if (typeof salvarEstado === 'function') salvarEstado(true);
+            if (typeof UI !== 'undefined' && UI.renderProgresso) UI.renderProgresso();
             log('Botão de resolução encontrado; executando clique.', {
                     tipo: 'tentativa', fase: 'resolvendo',
                     contexto: Object.assign({}, contextoBase, { metodo: 'clique' })
@@ -3076,6 +3092,117 @@
         };
     }
 
+    function normalizeExportFilters(filters) {
+        var source = filters || {};
+        function normalizeValues(values) {
+            var list = Array.isArray(values) ? values : [values];
+            var normalized = [];
+            list.forEach(function (value) {
+                var item = String(value == null ? '' : value).trim();
+                if (item && normalized.indexOf(item) < 0) normalized.push(item);
+            });
+            return normalized;
+        }
+        return {
+            subjects: normalizeValues(source.subjects),
+            banks: normalizeValues(source.banks)
+        };
+    }
+
+    function filterExportQuestions(questions, filters) {
+        var normalized = normalizeExportFilters(filters);
+        return (questions || []).filter(function (question) {
+            var subject = String(question && question.subject != null ? question.subject : '').trim();
+            var bank = String(question && question.bank != null ? question.bank : '').trim();
+            return (!normalized.subjects.length || normalized.subjects.indexOf(subject) >= 0) &&
+                (!normalized.banks.length || normalized.banks.indexOf(bank) >= 0);
+        });
+    }
+
+    function formatQuestionAsTxt(question, index) {
+        var number = question && question.number != null && question.number !== '' ? question.number : index + 1;
+        var lines = [String(number) + '. ' + String(question && question.statement || '')];
+        [
+            ['Matéria', question && question.subject],
+            ['Assunto', question && question.topic],
+            ['Banca', question && question.bank]
+        ].forEach(function (field) {
+            if (field[1]) lines.push(field[0] + ': ' + field[1]);
+        });
+        (question && question.options || []).forEach(function (option) {
+            lines.push(String(option && option.letter || '') + ') ' + String(option && option.text || ''));
+        });
+        return lines.join('\n');
+    }
+
+    function buildTxtExport(questions, entry) {
+        var title = entry && (entry.title || entry.code);
+        var sections = (questions || []).map(formatQuestionAsTxt);
+        return (title ? String(title) + '\n\n' : '') + sections.join('\n\n') + (sections.length ? '\n' : '');
+    }
+
+    function sanitizePrintStatementHtml(value) {
+        var html = String(value == null ? '' : value);
+        function normalizeProtocol(value) {
+            var decoded = String(value == null ? '' : value).replace(/&(?:#x([0-9a-f]+)|#([0-9]+)|(colon|tab|newline));?/gi, function (match, hex, decimal, named) {
+                if (hex || decimal) {
+                    var code = parseInt(hex || decimal, hex ? 16 : 10);
+                    return code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match;
+                }
+                return { colon: ':', tab: '\t', newline: '\n' }[String(named).toLowerCase()];
+            });
+            return decoded.replace(/[\u0000-\u0020]+/g, '').toLowerCase();
+        }
+        html = html.replace(/<(script|style|iframe|object|embed)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi, '');
+        html = html.replace(/<\/?(?:base|meta|link)\b[^>]*>/gi, '');
+        html = html.replace(/([\s/])on[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '$1');
+        return html.replace(/(\s)(href|src|xlink:href)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, function (match, space, name, attributeValue) {
+            var value = attributeValue.replace(/^(?:"|')|(?:"|')$/g, '');
+            return normalizeProtocol(value).indexOf('javascript:') === 0 ? space : match;
+        });
+    }
+
+    function buildPrintHtml(questions, entry) {
+        var title = entry && (entry.title || entry.code) || 'Caderno';
+        var cards = (questions || []).map(function (question, index) {
+            var number = question && question.number != null && question.number !== '' ? question.number : index + 1;
+            var meta = [
+                ['Matéria', question && question.subject],
+                ['Assunto', question && question.topic],
+                ['Banca', question && question.bank],
+                ['Ano', question && question.year],
+                ['Vaga', question && question.vacancy]
+            ].filter(function (field) { return field[1]; }).map(function (field) {
+                return '<span><strong>' + escapeHtml(field[0]) + ':</strong> ' + escapeHtml(field[1]) + '</span>';
+            }).join('');
+            var statement = question && question.statementHtml ? sanitizePrintStatementHtml(question.statementHtml) : ('<p>' + escapeHtml(question && question.statement) + '</p>');
+            var options = (question && question.options || []).map(function (option) {
+                return '<li><strong>' + escapeHtml(option && option.letter) + ')</strong> ' + escapeHtml(option && option.text) + '</li>';
+            }).join('');
+            return '<article class="question"><h2>Questão ' + escapeHtml(number) + '</h2><div class="meta">' + meta + '</div><div class="statement">' + statement + '</div>' + (options ? '<ol class="options">' + options + '</ol>' : '') + '</article>';
+        }).join('');
+        return '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>' + escapeHtml(title) + '</title><style>@page{margin:16mm}body{color:#111;font:12pt Georgia,serif;line-height:1.5}.title{margin:0 0 18px;font:700 18pt system-ui,sans-serif}.question{break-inside:avoid;border-bottom:1px solid #bbb;margin:0 0 20px;padding:0 0 16px}.question h2{font:700 14pt system-ui,sans-serif;margin:0 0 8px}.meta{color:#444;font:10pt system-ui,sans-serif;margin-bottom:12px}.meta span{display:inline-block;margin:0 14px 4px 0}.statement img{display:block;max-width:100%;height:auto;margin:12px auto}.options{padding-left:28px}@media print{body{margin:0}.question{break-inside:avoid}}</style></head><body><h1 class="title">' + escapeHtml(title) + '</h1>' + (cards || '<p>Nenhuma questão para os filtros atuais.</p>') + '</body></html>';
+    }
+
+    function abrirVisualizacaoImpressao(questions, entry, aoBloquear) {
+        var blob = new Blob([buildPrintHtml(questions, entry)], { type: 'text/html;charset=utf-8' });
+        var url = URL.createObjectURL(blob);
+        var printWindow = window.open(url, '_blank');
+        var revoke = function () { URL.revokeObjectURL(url); };
+        if (!printWindow) {
+            revoke();
+            if (aoBloquear) aoBloquear();
+            return false;
+        }
+        printWindow.onload = function () {
+            printWindow.focus();
+            printWindow.print();
+            setTimeout(revoke, 60000);
+        };
+        printWindow.addEventListener('beforeunload', revoke, { once: true });
+        return true;
+    }
+
     /* ---- HTML interativo (template do projeto) ---- */
     function buildInteractiveHtml(entry) {
         var data = Object.assign({}, entry, { questions: entry.questions || [] });
@@ -3106,9 +3233,28 @@
     var prefixed = raw.match(/^([A-E])\s*[:.)-]/);
     return prefixed ? prefixed[1] : "";
   }
-  function visibleQuestions() {
-    return data.questions.filter(function (question) {
-      return (!document.getElementById("bank").value || question.bank === document.getElementById("bank").value) && (!document.getElementById("year").value || String(question.year || "") === document.getElementById("year").value) && (!document.getElementById("vacancy").value || question.vacancy === document.getElementById("vacancy").value);
+  ${normalizeExportFilters.toString()}
+  ${filterExportQuestions.toString()}
+  ${formatQuestionAsTxt.toString()}
+  ${buildTxtExport.toString()}
+  ${escapeHtml.toString()}
+  ${sanitizePrintStatementHtml.toString()}
+  ${buildPrintHtml.toString()}
+  ${abrirVisualizacaoImpressao.toString()}
+  ${baixarBlob.toString()}
+  function selectedFilterValues(name) {
+    var control = document.querySelector('[data-filter="' + name + '"]');
+    return control ? Array.from(control.options).filter(function (option) { return option.selected; }).map(function (option) { return option.value; }) : [];
+  }
+  function exportFilters() {
+    return normalizeExportFilters({
+      subjects: selectedFilterValues("subject"),
+      banks: selectedFilterValues("bank")
+    });
+  }
+  function visibleQuestions(currentFilters) {
+    return filterExportQuestions(data.questions, currentFilters || exportFilters()).filter(function (question) {
+      return (!document.getElementById("year").value || String(question.year || "") === document.getElementById("year").value) && (!document.getElementById("vacancy").value || question.vacancy === document.getElementById("vacancy").value);
     });
   }
   function render() {
@@ -3168,7 +3314,8 @@
   }
   function resetIndex() { index = 0; render(); }
   function fillFilters() {
-    Array.from(new Set(data.questions.map(function (question) { return question.bank; }).filter(Boolean))).sort().forEach(function (value) { document.getElementById("bank").insertAdjacentHTML("beforeend", "<option>" + escapeValue(value) + "</option>"); });
+    Array.from(new Set(data.questions.map(function (question) { return question.subject; }).filter(Boolean))).sort().forEach(function (value) { document.querySelector('[data-filter="subject"]').insertAdjacentHTML("beforeend", "<option>" + escapeValue(value) + "</option>"); });
+    Array.from(new Set(data.questions.map(function (question) { return question.bank; }).filter(Boolean))).sort().forEach(function (value) { document.querySelector('[data-filter="bank"]').insertAdjacentHTML("beforeend", "<option>" + escapeValue(value) + "</option>"); });
     Array.from(new Set(data.questions.map(function (question) { return question.year; }).filter(Boolean))).sort(function (left, right) { return right - left; }).forEach(function (value) { document.getElementById("year").insertAdjacentHTML("beforeend", "<option>" + escapeValue(value) + "</option>"); });
     Array.from(new Set(data.questions.map(function (question) { return question.vacancy; }).filter(Boolean))).sort().forEach(function (value) { document.getElementById("vacancy").insertAdjacentHTML("beforeend", "<option>" + escapeValue(value) + "</option>"); });
   }
@@ -3192,17 +3339,18 @@
   document.getElementById("prev").onclick = function () { index = Math.max(0, index - 1); render(); };
   document.getElementById("next").onclick = function () { index = Math.min(visibleQuestions().length - 1, index + 1); render(); };
   document.getElementById("go").onclick = function () { var number = Number(document.getElementById("jump").value); if (number > 0) { index = Math.min(visibleQuestions().length - 1, number - 1); render(); } };
-  document.getElementById("bank").onchange = resetIndex;
-  document.getElementById("year").onchange = resetIndex;
-  document.getElementById("vacancy").onchange = resetIndex;
+  document.querySelector(".controls").addEventListener("change", function (event) { if (event.target && (event.target.matches("[data-filter]") || event.target.id === "year" || event.target.id === "vacancy")) resetIndex(); });
+  document.querySelector(".controls").addEventListener("click", function (event) { var clear = event.target.closest("[data-clear-filter]"); if (!clear) return; var control = document.querySelector('[data-filter="' + clear.getAttribute("data-clear-filter") + '"]'); if (control) Array.from(control.options).forEach(function (option) { option.selected = false; }); resetIndex(); });
   document.getElementById("newAttempt").onclick = function () { state.attempts.push({ id: "tentativa-" + (state.attempts.length + 1), createdAt: new Date().toISOString(), answers: {}, eliminated: {} }); state.activeAttempt = state.attempts.length - 1; write(); render(); };
   document.getElementById("saveHtml").onclick = function () { write(); var blob = new Blob([document.documentElement.outerHTML], { type: "text/html;charset=utf-8" }); var url = URL.createObjectURL(blob); var anchor = document.createElement("a"); anchor.href = url; anchor.download = downloadName; anchor.click(); setTimeout(function () { URL.revokeObjectURL(url); }, 60000); };
+  document.getElementById("downloadTxt").onclick = function () { var currentFilters = exportFilters(); var questions = filterExportQuestions(data.questions, currentFilters).filter(function (question) { return (!document.getElementById("year").value || String(question.year || "") === document.getElementById("year").value) && (!document.getElementById("vacancy").value || question.vacancy === document.getElementById("vacancy").value); }); baixarBlob((data.title || data.code || "caderno") + "-filtrado.txt", new Blob([buildTxtExport(questions, data)], { type: "text/plain;charset=utf-8" })); document.getElementById("status").textContent = questions.length + " questão(ões) filtrada(s) exportada(s) em TXT"; };
+  document.getElementById("downloadPdf").onclick = function () { var currentFilters = exportFilters(); var questions = visibleQuestions(currentFilters); abrirVisualizacaoImpressao(questions, data, function () { document.getElementById("status").textContent = "Não foi possível abrir a visualização de impressão."; }); };
   fillFilters();
   render();
 })();`;
         return [
             '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>', escapeHtml(entry.title || 'Caderno'),
-            '</title><style>body{margin:0;background:#f3f4f6;color:#182230;font:16px system-ui,-apple-system,Segoe UI,sans-serif}.top{position:sticky;top:0;z-index:2;background:#102a43;color:#fff;padding:14px 20px;box-shadow:0 2px 8px #0003}.top h1{font-size:18px;margin:0 0 7px}.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.controls button,.controls input,.controls select{border:1px solid #aab8c8;border-radius:7px;padding:7px 9px;font:inherit}.controls button{background:#fff;color:#102a43;cursor:pointer;font-weight:700}.summary{font-size:13px;opacity:.9}.main{max-width:900px;margin:24px auto;padding:0 16px}.card{background:#fff;border-radius:12px;box-shadow:0 3px 14px #0b1f3317;padding:22px}.meta{display:flex;gap:6px;flex-wrap:wrap;color:#52606d;font-size:14px;margin-bottom:14px}.tag{background:#e6f6ff;color:#075985;padding:4px 7px;border-radius:999px}.statement{line-height:1.6}.option{display:block;width:100%;text-align:left;margin:10px 0;padding:12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer;font:inherit;transition:background .2s ease,border-color .2s ease,opacity .3s ease,filter .3s ease}.option:hover{border-color:#2563eb}.option.selected{border:2px solid #2563eb;background:#eff6ff}.option.eliminated{opacity:.3;filter:grayscale(.8);background:#f1f5f9}.answer-row{display:flex;align-items:center;gap:12px;margin-top:14px}.answer-row #feedback{margin:0;flex:1}#respond{background:#2563eb;color:#fff;border:0;border-radius:8px;padding:11px 18px;font:700 14px system-ui;cursor:pointer;white-space:nowrap}#respond:hover:not(:disabled){background:#1d4ed8}#respond:disabled{background:#9ca3af;cursor:not-allowed}.hint{margin-top:12px;color:#64748b;font-size:13px}.status{margin-left:auto;font-size:13px}.empty{padding:30px;text-align:center;color:#64748b}</style></head><body><header class="top"><h1 id="title"></h1><div class="controls"><button id="prev">← Anterior</button><button id="next">Próxima →</button><label>Ir para <input id="jump" type="number" min="1" style="width:78px"></label><button id="go">Ir</button><label>Banca <select id="bank"><option value="">Todas</option></select></label><label>Ano <select id="year"><option value="">Todos</option></select></label><button id="newAttempt">Nova tentativa</button><button id="saveHtml">Baixar HTML com histórico</button><span class="status" id="status"></span></div><div class="summary" id="summary"></div></header><main class="main"><article class="card" id="question"></article></main><script id="tec-caderno-data" type="application/json">', jsJson(data), '</script><script id="tec-caderno-state" type="application/json">', jsJson(initial), '</script><script>', runtime, '</script></body></html>'
+            '</title><style>body{margin:0;background:#f3f4f6;color:#182230;font:16px system-ui,-apple-system,Segoe UI,sans-serif}.top{position:sticky;top:0;z-index:2;background:#102a43;color:#fff;padding:14px 20px;box-shadow:0 2px 8px #0003}.top h1{font-size:18px;margin:0 0 7px}.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.controls button,.controls input,.controls select{border:1px solid #aab8c8;border-radius:7px;padding:7px 9px;font:inherit}.controls select[multiple]{min-height:72px}.controls button{background:#fff;color:#102a43;cursor:pointer;font-weight:700}.summary{font-size:13px;opacity:.9}.main{max-width:900px;margin:24px auto;padding:0 16px}.card{background:#fff;border-radius:12px;box-shadow:0 3px 14px #0b1f3317;padding:22px}.meta{display:flex;gap:6px;flex-wrap:wrap;color:#52606d;font-size:14px;margin-bottom:14px}.tag{background:#e6f6ff;color:#075985;padding:4px 7px;border-radius:999px}.statement{line-height:1.6}.option{display:block;width:100%;text-align:left;margin:10px 0;padding:12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer;font:inherit;transition:background .2s ease,border-color .2s ease,opacity .3s ease,filter .3s ease}.option:hover{border-color:#2563eb}.option.selected{border:2px solid #2563eb;background:#eff6ff}.option.eliminated{opacity:.3;filter:grayscale(.8);background:#f1f5f9}.answer-row{display:flex;align-items:center;gap:12px;margin-top:14px}.answer-row #feedback{margin:0;flex:1}#respond{background:#2563eb;color:#fff;border:0;border-radius:8px;padding:11px 18px;font:700 14px system-ui;cursor:pointer;white-space:nowrap}#respond:hover:not(:disabled){background:#1d4ed8}#respond:disabled{background:#9ca3af;cursor:not-allowed}.hint{margin-top:12px;color:#64748b;font-size:13px}.status{margin-left:auto;font-size:13px}.empty{padding:30px;text-align:center;color:#64748b}</style></head><body><header class="top"><h1 id="title"></h1><div class="controls"><button id="prev">← Anterior</button><button id="next">Próxima →</button><label>Ir para <input id="jump" type="number" min="1" style="width:78px"></label><button id="go">Ir</button><label>Matéria <select id="subject" data-filter="subject" multiple aria-label="Filtrar por matéria"></select></label><button type="button" data-clear-filter="subject">Limpar matérias</button><label>Banca <select id="bank" data-filter="bank" multiple aria-label="Filtrar por banca"></select></label><button type="button" data-clear-filter="bank">Limpar bancas</button><label>Ano <select id="year"><option value="">Todos</option></select></label><button id="newAttempt">Nova tentativa</button><button id="saveHtml">Baixar HTML com histórico</button><button id="downloadTxt">Baixar TXT filtrado</button><button id="downloadPdf">Salvar PDF / Imprimir</button><span class="status" id="status"></span></div><div class="summary" id="summary"></div></header><main class="main"><article class="card" id="question"></article></main><script id="tec-caderno-data" type="application/json">', jsJson(data), '</script><script id="tec-caderno-state" type="application/json">', jsJson(initial), '</script><script>', runtime, '</script></body></html>'
         ].join('');
     }
 
@@ -3511,6 +3659,24 @@
         log('HTML baixado: ' + nome);
     }
 
+    function baixarTxtCaderno(caderno) {
+        var entry = entradaBiblioteca(caderno);
+        var questoes = filterExportQuestions(entry.questions, { subjects: [], banks: [] });
+        var nome = safeFilename(entry.title || entry.code) + '-filtrado.txt';
+        baixarBlob(nome, new Blob([buildTxtExport(questoes, entry)], { type: 'text/plain;charset=utf-8' }));
+        UI.setStatus('TXT baixado: ' + nome);
+        log('TXT baixado: ' + nome);
+    }
+
+    function baixarPdfCaderno(caderno) {
+        var entry = entradaBiblioteca(caderno);
+        var questoes = filterExportQuestions(entry.questions, { subjects: [], banks: [] });
+        if (abrirVisualizacaoImpressao(questoes, entry, function () { UI.setStatus('Não foi possível abrir a visualização de impressão.'); })) {
+            UI.setStatus('Visualização de impressão aberta: escolha "Salvar como PDF" no navegador.');
+            log('Visualização de impressão aberta: ' + safeFilename(entry.title || entry.code));
+        }
+    }
+
     async function baixarExcelCaderno(caderno) {
         var entry = entradaBiblioteca(caderno);
         var nome = safeFilename(entry.title || entry.code) + '.xlsx';
@@ -3571,6 +3737,11 @@
     }
 
     var __TecFabricaExport = {
+        normalizeExportFilters: normalizeExportFilters,
+        filterExportQuestions: filterExportQuestions,
+        formatQuestionAsTxt: formatQuestionAsTxt,
+        buildTxtExport: buildTxtExport,
+        buildPrintHtml: buildPrintHtml,
         buildInteractiveHtml: buildInteractiveHtml,
         buildXlsxBlob: buildXlsxBlob,
         zipStore: zipStore,
@@ -3591,6 +3762,8 @@
         safeFilename: safeFilename,
         baixarBlob: baixarBlob,
         baixarHtmlCaderno: baixarHtmlCaderno,
+        baixarTxtCaderno: baixarTxtCaderno,
+        baixarPdfCaderno: baixarPdfCaderno,
         baixarExcelCaderno: baixarExcelCaderno,
         baixarJsonCaderno: baixarJsonCaderno,
         entradaBiblioteca: entradaBiblioteca,
@@ -3989,6 +4162,9 @@
             '<div class="tf-linha"><input type="checkbox" id="tf-anuladas" ' + ((c.removeCancelled !== false) ? 'checked' : '') + '><label>Remover questões anuladas</label></div>' +
             '<div class="tf-linha"><input type="checkbox" id="tf-desatualizadas" ' + ((c.removeOutdated !== false) ? 'checked' : '') + '><label>Remover questões desatualizadas</label></div>' +
             '<div class="tf-linha"><input type="checkbox" id="tf-clique-gabarito" ' + ((c.usarCliqueGabarito !== false) ? 'checked' : '') + '><label>Clique para obter gabarito (necessário em questões novas)</label></div>' +
+            '<div class="tf-secao-titulo">Modo de coleta</div>' +
+            '<div class="tf-linha"><select id="tf-modo-coleta"><option value="com-gabarito"' + (c.modoColeta === 'sem-gabarito-manual' ? '' : ' selected') + '>Com gabarito</option><option value="sem-gabarito-manual"' + (c.modoColeta === 'sem-gabarito-manual' ? ' selected' : '') + '>Manual/offline — sem gabarito</option></select></div>' +
+            '<div class="tf-resumo">Manual/offline — sem gabarito salva somente a questão atualmente visível; não executa cliques automáticos nem navegação.</div>' +
             '<div class="tf-secao-titulo">Bancas (uma por linha)</div>' +
             '<textarea id="tf-bancas" style="min-height:80px">' + (c.banks || CONFIG.banks).join('\n') + '</textarea>' +
             '<div class="tf-secao-titulo">Anos (separados por vírgula)</div>' +
@@ -4001,6 +4177,7 @@
     function htmlExecucao() {
         var p = estado.plano;
         var c = estado.config;
+        var diario = resumoResolucoesDiarias(estado);
         if (!p) return '<div class="tf-vazio">Carregue o plano na aba Plano.</div>';
         var total = p.matters.length;
         var idx = Math.min(estado.planIndex, total);
@@ -4019,6 +4196,7 @@
         var msg = estado.mensagem ? '<div class="tf-status-msg">' + escapeHtml(estado.mensagem) + '</div>' : '';
         var rodando = estado.status === 'rodando';
         return '<div class="tf-status-msg" id="tf-msg">' + escapeHtml(faseTxt) + (estado.cadernoAtual ? ' · ' + escapeHtml(estado.cadernoAtual.titulo) : '') + '</div>' + msg + msgErro +
+            '<div class="tf-status-msg" id="tf-limite-diario">Resoluções hoje: ' + diario.usadas + '/' + diario.limite + ' · Restam ' + diario.restantes + '</div>' +
             '<div class="tf-secao-titulo">Progresso do plano</div>' +
             '<div class="tf-bar"><div style="width:' + pct + '%"></div></div>' +
             '<div class="tf-bar-label"><span>' + idx + ' de ' + total + ' matérias</span><span>' + pct + '%</span></div>' +
@@ -4039,8 +4217,11 @@
     function htmlBiblioteca() {
         var cats = cadernosPorCategoria();
         var nomes = Object.keys(cats).sort(function (a, b) { return a.localeCompare(b, 'pt-BR'); });
-        if (!nomes.length) return '<div class="tf-vazio">Nenhum caderno criado ainda. Rode o plano ou clique em Copiar dentro de um caderno.</div>';
-        return nomes.map(function (cat) {
+        var salvarAtual = estado.config && estado.config.modoColeta === 'sem-gabarito-manual' && paginaAtual() === 'caderno' && document.querySelector('article.questao-enunciado')
+            ? '<div class="tf-resumo"><b>Manual/offline — sem gabarito</b><br>Salva somente a questão atualmente visível; não executa cliques automáticos nem navegação.<br><button class="tf-btn sec" data-acao="salvar-sem-gabarito">Salvar questão sem gabarito</button></div>'
+            : '';
+        if (!nomes.length) return salvarAtual + '<div class="tf-vazio">Nenhum caderno criado ainda. Rode o plano ou clique em Copiar dentro de um caderno.</div>';
+        return salvarAtual + nomes.map(function (cat) {
             var lista = cats[cat];
             var totalQ = lista.reduce(function (s, c) { return s + (c.questoes ? c.questoes.length : 0); }, 0);
             var completos = lista.filter(function (c) { return c.completo; }).length;
@@ -4054,6 +4235,8 @@
                     '<div class="tf-c-botoes" style="margin-top:6px">' +
                     '  <button class="tf-btn sec" data-acao="copiar" data-id="' + b.id + '">📋 Copiar questões</button>' +
                     '  <button class="tf-btn sec" data-acao="html" data-id="' + b.id + '"' + (n ? '' : ' disabled') + '>HTML</button>' +
+                    '  <button class="tf-btn sec" data-acao="txt" data-id="' + b.id + '"' + (n ? '' : ' disabled') + '>TXT</button>' +
+                    '  <button class="tf-btn sec" data-acao="pdf" data-id="' + b.id + '"' + (n ? '' : ' disabled') + '>PDF / Imprimir</button>' +
                     '  <button class="tf-btn sec" data-acao="excel" data-id="' + b.id + '"' + (n ? '' : ' disabled') + '>Excel</button>' +
                     '  <button class="tf-btn sec" data-acao="json" data-id="' + b.id + '"' + (n ? '' : ' disabled') + '>JSON</button>' +
                     '</div></div>';
@@ -4162,6 +4345,7 @@
                 cfg.removeCancelled = corpo.querySelector('#tf-anuladas').checked;
                 cfg.removeOutdated = corpo.querySelector('#tf-desatualizadas').checked;
                 cfg.usarCliqueGabarito = corpo.querySelector('#tf-clique-gabarito').checked;
+                cfg.modoColeta = corpo.querySelector('#tf-modo-coleta').value === 'sem-gabarito-manual' ? 'sem-gabarito-manual' : 'com-gabarito';
                 cfg.banks = corpo.querySelector('#tf-bancas').value.split('\n').map(clean).filter(Boolean);
                 cfg.years = corpo.querySelector('#tf-anos').value.split(',').map(function (y) { return parseInt(y, 10); }).filter(function (y) { return y >= 1900 && y <= 2100; });
                 if (cfg.banks.length < 1) throw new Error('Informe ao menos uma banca.');
@@ -4228,6 +4412,22 @@
         corpo.querySelectorAll('[data-acao]').forEach(function (b) {
             b.addEventListener('click', function () {
                 var acao = b.getAttribute('data-acao');
+                if (acao === 'salvar-sem-gabarito') {
+                    var cadernoAtual = estado.biblioteca[cadernoIdDaUrl()];
+                    if (!cadernoAtual) {
+                        UI.setStatus('Caderno atual não encontrado na biblioteca.');
+                        return;
+                    }
+                    try {
+                        salvarQuestaoAtualSemGabarito(cadernoAtual);
+                        UI.renderBiblioteca();
+                        UI.renderProgresso();
+                        UI.setStatus('Questão salva sem gabarito.');
+                    } catch (e) {
+                        UI.setStatus(String(e && e.message || e));
+                    }
+                    return;
+                }
                 if (acao === 'categoria') {
                     var cat = b.getAttribute('data-cat');
                     exportarCategoria(cat);
@@ -4238,10 +4438,27 @@
                 if (!caderno) return;
                 if (acao === 'copiar') copiarCadernoSobDemanda(caderno);
                 else if (acao === 'html') baixarHtmlCaderno(caderno);
+                else if (acao === 'txt') baixarTxtCaderno(caderno);
+                else if (acao === 'pdf') baixarPdfCaderno(caderno);
                 else if (acao === 'excel') baixarExcelCaderno(caderno);
                 else if (acao === 'json') baixarJsonCaderno(caderno);
             });
         });
+    }
+
+    function salvarQuestaoAtualSemGabarito(caderno) {
+        var questao = extrairQuestaoAtual();
+        if (!questao || !questao.id || !questao.number) throw new Error('Não consegui extrair a questão atualmente visível.');
+        var questaoSemGabarito = Object.assign({}, questao, { answer: '', answerSource: 'nao-aplicavel' });
+        var questoes = Array.isArray(caderno.questoes) ? caderno.questoes : [];
+        var indice = questoes.findIndex(function (item) { return String(item && item.id) === String(questaoSemGabarito.id); });
+        if (indice >= 0) questoes[indice] = questaoSemGabarito;
+        else questoes.push(questaoSemGabarito);
+        caderno.questoes = questoes;
+        caderno.coletadas = questoes.length;
+        estado.biblioteca[caderno.id] = caderno;
+        salvarEstado(true);
+        return { saved: true, questionId: questaoSemGabarito.id, number: questaoSemGabarito.number };
     }
 
     /* Copiar sob demanda (botão da biblioteca): navega até o caderno e coleta.

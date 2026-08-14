@@ -7,12 +7,24 @@ import { resolve } from 'node:path';
 const root = resolve(import.meta.dirname, '..');
 const source = readFileSync(resolve(root, 'src/fabrica/18-ui.js'), 'utf8');
 const modelSource = readFileSync(resolve(root, 'src/fabrica/18-ui-model.js'), 'utf8');
+const exportSource = readFileSync(resolve(root, 'src/fabrica/17-exportacao.js'), 'utf8');
 
 function loadModel() {
   const window = {};
   const context = { window, JSON, Object, Array, String, Map };
   vm.runInNewContext(modelSource, context);
   return window.PLANO_UI_MODEL || context.PLANO_UI_MODEL;
+}
+
+function loadExport() {
+  const window = {};
+  vm.runInNewContext(exportSource, {
+    window,
+    Map, Set, Promise, Date, JSON, Object, Array, Uint8Array, TextEncoder,
+    setTimeout, clearTimeout,
+    clean: (value) => String(value == null ? '' : value).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim(),
+  }, { filename: '17-exportacao.js' });
+  return window.__TecFabricaExport;
 }
 
 function sectionBetween(startMarker, endMarker) {
@@ -108,4 +120,18 @@ test('htmlExecucao exibe o saldo diário de resoluções', () => {
 
   assert.match(context.result, /id="tf-limite-diario"/);
   assert.match(context.result, /Resoluções hoje: 37\/1200 · Restam 1163/);
+});
+
+test('HTML interativo e biblioteca expõem filtros múltiplos e exportações TXT/PDF', () => {
+  const html = loadExport().buildInteractiveHtml({
+    id: 'caderno-1', code: 'caderno-1', title: 'Revisão',
+    questions: [{ id: 'q-1', number: 1, subject: 'Português', bank: 'FCC', statement: 'Enunciado', options: [] }],
+  });
+
+  assert.match(html, /id="downloadTxt"/);
+  assert.match(html, /id="downloadPdf"/);
+  assert.match(html, /data-filter="subject"/);
+  assert.match(html, /data-filter="bank"/);
+  assert.match(source, /data-acao="txt"/);
+  assert.match(source, /data-acao="pdf"/);
 });

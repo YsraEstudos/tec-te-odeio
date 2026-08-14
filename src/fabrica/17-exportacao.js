@@ -147,6 +147,25 @@
         return '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>' + escapeHtml(title) + '</title><style>@page{margin:16mm}body{color:#111;font:12pt Georgia,serif;line-height:1.5}.title{margin:0 0 18px;font:700 18pt system-ui,sans-serif}.question{break-inside:avoid;border-bottom:1px solid #bbb;margin:0 0 20px;padding:0 0 16px}.question h2{font:700 14pt system-ui,sans-serif;margin:0 0 8px}.meta{color:#444;font:10pt system-ui,sans-serif;margin-bottom:12px}.meta span{display:inline-block;margin:0 14px 4px 0}.statement img{display:block;max-width:100%;height:auto;margin:12px auto}.options{padding-left:28px}@media print{body{margin:0}.question{break-inside:avoid}}</style></head><body><h1 class="title">' + escapeHtml(title) + '</h1>' + (cards || '<p>Nenhuma questão para os filtros atuais.</p>') + '</body></html>';
     }
 
+    function abrirVisualizacaoImpressao(questions, entry, aoBloquear) {
+        var blob = new Blob([buildPrintHtml(questions, entry)], { type: 'text/html;charset=utf-8' });
+        var url = URL.createObjectURL(blob);
+        var printWindow = window.open(url, '_blank');
+        var revoke = function () { URL.revokeObjectURL(url); };
+        if (!printWindow) {
+            revoke();
+            if (aoBloquear) aoBloquear();
+            return false;
+        }
+        printWindow.onload = function () {
+            printWindow.focus();
+            printWindow.print();
+            setTimeout(revoke, 60000);
+        };
+        printWindow.addEventListener('beforeunload', revoke, { once: true });
+        return true;
+    }
+
     /* ---- HTML interativo (template do projeto) ---- */
     function buildInteractiveHtml(entry) {
         var data = Object.assign({}, entry, { questions: entry.questions || [] });
@@ -184,15 +203,20 @@
   ${escapeHtml.toString()}
   ${sanitizePrintStatementHtml.toString()}
   ${buildPrintHtml.toString()}
+  ${abrirVisualizacaoImpressao.toString()}
   ${baixarBlob.toString()}
+  function selectedFilterValues(name) {
+    var control = document.querySelector('[data-filter="' + name + '"]');
+    return control ? Array.from(control.options).filter(function (option) { return option.selected; }).map(function (option) { return option.value; }) : [];
+  }
   function exportFilters() {
     return normalizeExportFilters({
-      subjects: [document.getElementById("subject").value],
-      banks: [document.getElementById("bank").value]
+      subjects: selectedFilterValues("subject"),
+      banks: selectedFilterValues("bank")
     });
   }
-  function visibleQuestions() {
-    return filterExportQuestions(data.questions, exportFilters()).filter(function (question) {
+  function visibleQuestions(currentFilters) {
+    return filterExportQuestions(data.questions, currentFilters || exportFilters()).filter(function (question) {
       return (!document.getElementById("year").value || String(question.year || "") === document.getElementById("year").value) && (!document.getElementById("vacancy").value || question.vacancy === document.getElementById("vacancy").value);
     });
   }
@@ -253,8 +277,8 @@
   }
   function resetIndex() { index = 0; render(); }
   function fillFilters() {
-    Array.from(new Set(data.questions.map(function (question) { return question.subject; }).filter(Boolean))).sort().forEach(function (value) { document.getElementById("subject").insertAdjacentHTML("beforeend", "<option>" + escapeValue(value) + "</option>"); });
-    Array.from(new Set(data.questions.map(function (question) { return question.bank; }).filter(Boolean))).sort().forEach(function (value) { document.getElementById("bank").insertAdjacentHTML("beforeend", "<option>" + escapeValue(value) + "</option>"); });
+    Array.from(new Set(data.questions.map(function (question) { return question.subject; }).filter(Boolean))).sort().forEach(function (value) { document.querySelector('[data-filter="subject"]').insertAdjacentHTML("beforeend", "<option>" + escapeValue(value) + "</option>"); });
+    Array.from(new Set(data.questions.map(function (question) { return question.bank; }).filter(Boolean))).sort().forEach(function (value) { document.querySelector('[data-filter="bank"]').insertAdjacentHTML("beforeend", "<option>" + escapeValue(value) + "</option>"); });
     Array.from(new Set(data.questions.map(function (question) { return question.year; }).filter(Boolean))).sort(function (left, right) { return right - left; }).forEach(function (value) { document.getElementById("year").insertAdjacentHTML("beforeend", "<option>" + escapeValue(value) + "</option>"); });
     Array.from(new Set(data.questions.map(function (question) { return question.vacancy; }).filter(Boolean))).sort().forEach(function (value) { document.getElementById("vacancy").insertAdjacentHTML("beforeend", "<option>" + escapeValue(value) + "</option>"); });
   }
@@ -278,20 +302,18 @@
   document.getElementById("prev").onclick = function () { index = Math.max(0, index - 1); render(); };
   document.getElementById("next").onclick = function () { index = Math.min(visibleQuestions().length - 1, index + 1); render(); };
   document.getElementById("go").onclick = function () { var number = Number(document.getElementById("jump").value); if (number > 0) { index = Math.min(visibleQuestions().length - 1, number - 1); render(); } };
-  document.getElementById("subject").onchange = resetIndex;
-  document.getElementById("bank").onchange = resetIndex;
-  document.getElementById("year").onchange = resetIndex;
-  document.getElementById("vacancy").onchange = resetIndex;
+  document.querySelector(".controls").addEventListener("change", function (event) { if (event.target && (event.target.matches("[data-filter]") || event.target.id === "year" || event.target.id === "vacancy")) resetIndex(); });
+  document.querySelector(".controls").addEventListener("click", function (event) { var clear = event.target.closest("[data-clear-filter]"); if (!clear) return; var control = document.querySelector('[data-filter="' + clear.getAttribute("data-clear-filter") + '"]'); if (control) Array.from(control.options).forEach(function (option) { option.selected = false; }); resetIndex(); });
   document.getElementById("newAttempt").onclick = function () { state.attempts.push({ id: "tentativa-" + (state.attempts.length + 1), createdAt: new Date().toISOString(), answers: {}, eliminated: {} }); state.activeAttempt = state.attempts.length - 1; write(); render(); };
   document.getElementById("saveHtml").onclick = function () { write(); var blob = new Blob([document.documentElement.outerHTML], { type: "text/html;charset=utf-8" }); var url = URL.createObjectURL(blob); var anchor = document.createElement("a"); anchor.href = url; anchor.download = downloadName; anchor.click(); setTimeout(function () { URL.revokeObjectURL(url); }, 60000); };
   document.getElementById("downloadTxt").onclick = function () { var currentFilters = exportFilters(); var questions = filterExportQuestions(data.questions, currentFilters).filter(function (question) { return (!document.getElementById("year").value || String(question.year || "") === document.getElementById("year").value) && (!document.getElementById("vacancy").value || question.vacancy === document.getElementById("vacancy").value); }); baixarBlob((data.title || data.code || "caderno") + "-filtrado.txt", new Blob([buildTxtExport(questions, data)], { type: "text/plain;charset=utf-8" })); document.getElementById("status").textContent = questions.length + " questão(ões) filtrada(s) exportada(s) em TXT"; };
-  document.getElementById("downloadPdf").onclick = function () { var questions = visibleQuestions(); var blob = new Blob([buildPrintHtml(questions, data)], { type: "text/html;charset=utf-8" }); var url = URL.createObjectURL(blob); var printWindow = window.open(url, "_blank"); var revoke = function () { URL.revokeObjectURL(url); }; if (!printWindow) { revoke(); document.getElementById("status").textContent = "Não foi possível abrir a visualização de impressão."; return; } printWindow.onload = function () { printWindow.focus(); printWindow.print(); setTimeout(revoke, 60000); }; printWindow.addEventListener("beforeunload", revoke, { once: true }); };
+  document.getElementById("downloadPdf").onclick = function () { var currentFilters = exportFilters(); var questions = visibleQuestions(currentFilters); abrirVisualizacaoImpressao(questions, data, function () { document.getElementById("status").textContent = "Não foi possível abrir a visualização de impressão."; }); };
   fillFilters();
   render();
 })();`;
         return [
             '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>', escapeHtml(entry.title || 'Caderno'),
-            '</title><style>body{margin:0;background:#f3f4f6;color:#182230;font:16px system-ui,-apple-system,Segoe UI,sans-serif}.top{position:sticky;top:0;z-index:2;background:#102a43;color:#fff;padding:14px 20px;box-shadow:0 2px 8px #0003}.top h1{font-size:18px;margin:0 0 7px}.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.controls button,.controls input,.controls select{border:1px solid #aab8c8;border-radius:7px;padding:7px 9px;font:inherit}.controls button{background:#fff;color:#102a43;cursor:pointer;font-weight:700}.summary{font-size:13px;opacity:.9}.main{max-width:900px;margin:24px auto;padding:0 16px}.card{background:#fff;border-radius:12px;box-shadow:0 3px 14px #0b1f3317;padding:22px}.meta{display:flex;gap:6px;flex-wrap:wrap;color:#52606d;font-size:14px;margin-bottom:14px}.tag{background:#e6f6ff;color:#075985;padding:4px 7px;border-radius:999px}.statement{line-height:1.6}.option{display:block;width:100%;text-align:left;margin:10px 0;padding:12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer;font:inherit;transition:background .2s ease,border-color .2s ease,opacity .3s ease,filter .3s ease}.option:hover{border-color:#2563eb}.option.selected{border:2px solid #2563eb;background:#eff6ff}.option.eliminated{opacity:.3;filter:grayscale(.8);background:#f1f5f9}.answer-row{display:flex;align-items:center;gap:12px;margin-top:14px}.answer-row #feedback{margin:0;flex:1}#respond{background:#2563eb;color:#fff;border:0;border-radius:8px;padding:11px 18px;font:700 14px system-ui;cursor:pointer;white-space:nowrap}#respond:hover:not(:disabled){background:#1d4ed8}#respond:disabled{background:#9ca3af;cursor:not-allowed}.hint{margin-top:12px;color:#64748b;font-size:13px}.status{margin-left:auto;font-size:13px}.empty{padding:30px;text-align:center;color:#64748b}</style></head><body><header class="top"><h1 id="title"></h1><div class="controls"><button id="prev">← Anterior</button><button id="next">Próxima →</button><label>Ir para <input id="jump" type="number" min="1" style="width:78px"></label><button id="go">Ir</button><label>Matéria <select id="subject"><option value="">Todas</option></select></label><label>Banca <select id="bank"><option value="">Todas</option></select></label><label>Ano <select id="year"><option value="">Todos</option></select></label><button id="newAttempt">Nova tentativa</button><button id="saveHtml">Baixar HTML com histórico</button><button id="downloadTxt">Baixar TXT filtrado</button><button id="downloadPdf">Salvar PDF / Imprimir</button><span class="status" id="status"></span></div><div class="summary" id="summary"></div></header><main class="main"><article class="card" id="question"></article></main><script id="tec-caderno-data" type="application/json">', jsJson(data), '</script><script id="tec-caderno-state" type="application/json">', jsJson(initial), '</script><script>', runtime, '</script></body></html>'
+            '</title><style>body{margin:0;background:#f3f4f6;color:#182230;font:16px system-ui,-apple-system,Segoe UI,sans-serif}.top{position:sticky;top:0;z-index:2;background:#102a43;color:#fff;padding:14px 20px;box-shadow:0 2px 8px #0003}.top h1{font-size:18px;margin:0 0 7px}.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.controls button,.controls input,.controls select{border:1px solid #aab8c8;border-radius:7px;padding:7px 9px;font:inherit}.controls select[multiple]{min-height:72px}.controls button{background:#fff;color:#102a43;cursor:pointer;font-weight:700}.summary{font-size:13px;opacity:.9}.main{max-width:900px;margin:24px auto;padding:0 16px}.card{background:#fff;border-radius:12px;box-shadow:0 3px 14px #0b1f3317;padding:22px}.meta{display:flex;gap:6px;flex-wrap:wrap;color:#52606d;font-size:14px;margin-bottom:14px}.tag{background:#e6f6ff;color:#075985;padding:4px 7px;border-radius:999px}.statement{line-height:1.6}.option{display:block;width:100%;text-align:left;margin:10px 0;padding:12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer;font:inherit;transition:background .2s ease,border-color .2s ease,opacity .3s ease,filter .3s ease}.option:hover{border-color:#2563eb}.option.selected{border:2px solid #2563eb;background:#eff6ff}.option.eliminated{opacity:.3;filter:grayscale(.8);background:#f1f5f9}.answer-row{display:flex;align-items:center;gap:12px;margin-top:14px}.answer-row #feedback{margin:0;flex:1}#respond{background:#2563eb;color:#fff;border:0;border-radius:8px;padding:11px 18px;font:700 14px system-ui;cursor:pointer;white-space:nowrap}#respond:hover:not(:disabled){background:#1d4ed8}#respond:disabled{background:#9ca3af;cursor:not-allowed}.hint{margin-top:12px;color:#64748b;font-size:13px}.status{margin-left:auto;font-size:13px}.empty{padding:30px;text-align:center;color:#64748b}</style></head><body><header class="top"><h1 id="title"></h1><div class="controls"><button id="prev">← Anterior</button><button id="next">Próxima →</button><label>Ir para <input id="jump" type="number" min="1" style="width:78px"></label><button id="go">Ir</button><label>Matéria <select id="subject" data-filter="subject" multiple aria-label="Filtrar por matéria"></select></label><button type="button" data-clear-filter="subject">Limpar matérias</button><label>Banca <select id="bank" data-filter="bank" multiple aria-label="Filtrar por banca"></select></label><button type="button" data-clear-filter="bank">Limpar bancas</button><label>Ano <select id="year"><option value="">Todos</option></select></label><button id="newAttempt">Nova tentativa</button><button id="saveHtml">Baixar HTML com histórico</button><button id="downloadTxt">Baixar TXT filtrado</button><button id="downloadPdf">Salvar PDF / Imprimir</button><span class="status" id="status"></span></div><div class="summary" id="summary"></div></header><main class="main"><article class="card" id="question"></article></main><script id="tec-caderno-data" type="application/json">', jsJson(data), '</script><script id="tec-caderno-state" type="application/json">', jsJson(initial), '</script><script>', runtime, '</script></body></html>'
         ].join('');
     }
 
@@ -600,6 +622,24 @@
         log('HTML baixado: ' + nome);
     }
 
+    function baixarTxtCaderno(caderno) {
+        var entry = entradaBiblioteca(caderno);
+        var questoes = filterExportQuestions(entry.questions, { subjects: [], banks: [] });
+        var nome = safeFilename(entry.title || entry.code) + '-filtrado.txt';
+        baixarBlob(nome, new Blob([buildTxtExport(questoes, entry)], { type: 'text/plain;charset=utf-8' }));
+        UI.setStatus('TXT baixado: ' + nome);
+        log('TXT baixado: ' + nome);
+    }
+
+    function baixarPdfCaderno(caderno) {
+        var entry = entradaBiblioteca(caderno);
+        var questoes = filterExportQuestions(entry.questions, { subjects: [], banks: [] });
+        if (abrirVisualizacaoImpressao(questoes, entry, function () { UI.setStatus('Não foi possível abrir a visualização de impressão.'); })) {
+            UI.setStatus('Visualização de impressão aberta: escolha "Salvar como PDF" no navegador.');
+            log('Visualização de impressão aberta: ' + safeFilename(entry.title || entry.code));
+        }
+    }
+
     async function baixarExcelCaderno(caderno) {
         var entry = entradaBiblioteca(caderno);
         var nome = safeFilename(entry.title || entry.code) + '.xlsx';
@@ -685,6 +725,8 @@
         safeFilename: safeFilename,
         baixarBlob: baixarBlob,
         baixarHtmlCaderno: baixarHtmlCaderno,
+        baixarTxtCaderno: baixarTxtCaderno,
+        baixarPdfCaderno: baixarPdfCaderno,
         baixarExcelCaderno: baixarExcelCaderno,
         baixarJsonCaderno: baixarJsonCaderno,
         entradaBiblioteca: entradaBiblioteca,

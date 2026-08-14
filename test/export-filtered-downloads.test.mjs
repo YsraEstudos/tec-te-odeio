@@ -8,15 +8,16 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(resolve(root, 'src/fabrica/17-exportacao.js'), 'utf8');
 
-function loadExport() {
-  const window = {};
-  vm.runInNewContext(source, {
-    window,
+function loadExport(overrides = {}) {
+  const context = {
+    window: {},
     Map, Set, Promise, Date, JSON, Object, Array, Uint8Array, TextEncoder,
     setTimeout, clearTimeout,
     clean: (value) => String(value == null ? '' : value).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim(),
-  }, { filename: '17-exportacao.js' });
-  return window.__TecFabricaExport;
+    ...overrides,
+  };
+  vm.runInNewContext(source, context, { filename: '17-exportacao.js' });
+  return context.window.__TecFabricaExport;
 }
 
 const questions = [
@@ -151,8 +152,58 @@ test('HTML interativo abre impressão das questões atualmente filtradas', () =>
 
   assert.match(html, /id="downloadPdf"/);
   assert.match(html, /Salvar PDF \/ Imprimir/);
-  assert.match(html, /buildPrintHtml\(questions, data\)/);
+  assert.match(html, /abrirVisualizacaoImpressao\(questions, data,/);
   assert.match(html, /window\.open\(/);
   assert.match(html, /printWindow\.print\(\)/);
   assert.match(html, /URL\.revokeObjectURL\(url\)/);
+});
+
+test('ações da biblioteca exportam todo o caderno em TXT e via diálogo de impressão', () => {
+  const blobs = [];
+  const downloads = [];
+  const printWindows = [];
+  class FakeBlob {
+    constructor(parts, options) {
+      this.parts = parts;
+      this.type = options.type;
+      blobs.push(this);
+    }
+  }
+  const exp = loadExport({
+    Blob: FakeBlob,
+    URL: { createObjectURL: (blob) => { blobs.push({ url: 'blob:' + blobs.length, blob }); return 'blob:' + (blobs.length - 1); }, revokeObjectURL: () => {} },
+    document: {
+      body: { appendChild: () => {} },
+      createElement: () => ({ click() { downloads.push({ href: this.href, download: this.download }); }, remove: () => {} }),
+    },
+    setTimeout: (callback) => { callback(); return 0; },
+    UI: { setStatus: () => {} },
+    log: () => {},
+    window: {
+      open: (url) => {
+        const printWindow = { url, focus: () => {}, print: () => { printWindow.printed = true; }, addEventListener: () => {} };
+        printWindows.push(printWindow);
+        return printWindow;
+      },
+    },
+  });
+  const caderno = {
+    id: 'c-1', titulo: 'Revisão', questoes: [
+      { id: 'q-1', number: 1, subject: 'Português', bank: 'FCC', statement: 'Primeira', options: [] },
+      { id: 'q-2', number: 2, subject: 'Direito', bank: 'FGV', statement: 'Segunda', options: [] },
+    ],
+  };
+
+  exp.baixarTxtCaderno(caderno);
+  const txt = String(blobs[0].parts[0]);
+  assert.match(txt, /Primeira/);
+  assert.match(txt, /Segunda/);
+  assert.equal(downloads[0].download, 'Revisão-filtrado.txt');
+
+  exp.baixarPdfCaderno(caderno);
+  const printHtml = String(blobs[2].parts[0]);
+  assert.match(printHtml, /Primeira/);
+  assert.match(printHtml, /Segunda/);
+  printWindows[0].onload();
+  assert.equal(printWindows[0].printed, true);
 });

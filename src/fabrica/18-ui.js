@@ -295,6 +295,8 @@
                     '<div class="tf-c-botoes" style="margin-top:6px">' +
                     '  <button class="tf-btn sec" data-acao="copiar" data-id="' + b.id + '">📋 Copiar questões</button>' +
                     '  <button class="tf-btn sec" data-acao="html" data-id="' + b.id + '"' + (n ? '' : ' disabled') + '>HTML</button>' +
+                    '  <button class="tf-btn sec" data-acao="txt" data-id="' + b.id + '"' + (n ? '' : ' disabled') + '>TXT</button>' +
+                    '  <button class="tf-btn sec" data-acao="pdf" data-id="' + b.id + '"' + (n ? '' : ' disabled') + '>PDF / Imprimir</button>' +
                     '  <button class="tf-btn sec" data-acao="excel" data-id="' + b.id + '"' + (n ? '' : ' disabled') + '>Excel</button>' +
                     '  <button class="tf-btn sec" data-acao="json" data-id="' + b.id + '"' + (n ? '' : ' disabled') + '>JSON</button>' +
                     '</div></div>';
@@ -496,6 +498,8 @@
                 if (!caderno) return;
                 if (acao === 'copiar') copiarCadernoSobDemanda(caderno);
                 else if (acao === 'html') baixarHtmlCaderno(caderno);
+                else if (acao === 'txt') baixarTxtCaderno(caderno);
+                else if (acao === 'pdf') baixarPdfCaderno(caderno);
                 else if (acao === 'excel') baixarExcelCaderno(caderno);
                 else if (acao === 'json') baixarJsonCaderno(caderno);
             });
