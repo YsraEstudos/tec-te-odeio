@@ -5,7 +5,18 @@ cd /d "%~dp0"
 
 node --version >nul 2>&1 || goto :error
 node scripts\build.mjs || goto :error
-node --test test\build.test.mjs test\persistence.test.mjs test\diagnostico.test.mjs test\diagnostic.test.mjs scripts\exportacao.test.mjs || goto :error
+set /a test_files=0
+for /r test %%F in (*.test.mjs) do (
+    set /a test_files+=1
+    echo [build] test %%F
+    node --test "%%F" || goto :error
+)
+for /r scripts %%F in (*.test.mjs) do (
+    set /a test_files+=1
+    echo [build] test %%F
+    node --test "%%F" || goto :error
+)
+if %test_files% EQU 0 goto :error
 node --check dist\tec_fabrica_cadernos.user.js || goto :error
 
 rem Clipboard e best-effort: nunca invalida nem remove um build valido.
