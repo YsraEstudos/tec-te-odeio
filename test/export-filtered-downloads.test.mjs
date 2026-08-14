@@ -82,6 +82,26 @@ test('gera TXT filtrado com metadados e todas as alternativas sem exigir gabarit
   assert.doesNotMatch(text, /Gabarito|Resposta correta/);
 });
 
+test('gera visualização de impressão somente com questões filtradas e texto escapado', () => {
+  const exp = loadExport();
+  const html = exp.buildPrintHtml([
+    {
+      id: 'q-10', number: 10, subject: 'Direito <Constitucional>', bank: 'Cebraspe',
+      statement: '<img src=x onerror=alert(1)> Enunciado seguro',
+      statementHtml: '<p>Enunciado <em>sanitizado</em></p>',
+      options: [{ letter: 'A', text: '<script>alert(1)</script> Alternativa' }],
+    },
+  ], { title: 'Revisão <script>alert(1)</script>' });
+
+  assert.match(html, /@media print/);
+  assert.match(html, /Enunciado <em>sanitizado<\/em>/);
+  assert.match(html, /Direito &lt;Constitucional&gt;/);
+  assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt; Alternativa/);
+  assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/);
+  assert.doesNotMatch(html, /onerror=alert\(1\)/);
+  assert.doesNotMatch(html, /<button|aria-pressed|Responder|feedback/);
+});
+
 test('HTML interativo oferece download TXT aplicado às questões filtradas', () => {
   const exp = loadExport();
   const html = exp.buildInteractiveHtml({
@@ -94,4 +114,19 @@ test('HTML interativo oferece download TXT aplicado às questões filtradas', ()
   assert.match(html, /baixarBlob\(/);
   assert.match(html, /text\/plain;charset=utf-8/);
   assert.match(html, /questão\(ões\) filtrada\(s\)/);
+});
+
+test('HTML interativo abre impressão das questões atualmente filtradas', () => {
+  const exp = loadExport();
+  const html = exp.buildInteractiveHtml({
+    id: 'caderno-1', code: 'caderno-1', title: 'Revisão',
+    questions: [{ id: 'q-1', number: 1, subject: 'Português', bank: 'FCC', statement: 'Enunciado', options: [{ letter: 'C', text: 'Certo' }] }],
+  });
+
+  assert.match(html, /id="downloadPdf"/);
+  assert.match(html, /Salvar PDF \/ Imprimir/);
+  assert.match(html, /buildPrintHtml\(questions, data\)/);
+  assert.match(html, /window\.open\(/);
+  assert.match(html, /printWindow\.print\(\)/);
+  assert.match(html, /URL\.revokeObjectURL\(url\)/);
 });
