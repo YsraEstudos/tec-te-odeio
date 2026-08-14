@@ -1169,16 +1169,16 @@
         var atraso = saveCritical ? 0 : SAVE_DEBOUNCE_MS;
         return new Promise(function (resolve) {
             saveTimer = setTimeout(function () {
-            saveTimer = null; saveCritical = false;
-            var snapshot;
-            try { snapshot = JSON.stringify(sanitizarParaPersistencia(estado)); }
-            catch (e) {
-                log('ERRO: falha ao serializar o estado (' + (e && e.name || e) + ').', {
-                    tipo: 'erro', nivel: 'erro', persist: false
-                });
-                estado.status = 'pausado'; resolve(); return;
-            }
-            salvarEstadoIdb(snapshot).then(resolve, resolve);
+                saveTimer = null; saveCritical = false;
+                var snapshot;
+                try { snapshot = JSON.stringify(sanitizarParaPersistencia(estado)); }
+                catch (e) {
+                    log('ERRO: falha ao serializar o estado (' + (e && e.name || e) + ').', {
+                        tipo: 'erro', nivel: 'erro', persist: false
+                    });
+                    estado.status = 'pausado'; resolve(); return;
+                }
+                salvarEstadoIdb(snapshot).then(resolve, resolve);
             }, atraso);
         });
     }
