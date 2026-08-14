@@ -123,6 +123,8 @@ test('remove protocolos javascript ofuscados e conteúdo de elementos perigosos 
   assert.match(html, /<a\s*>link<\/a>/);
   assert.match(html, /<img src="figura-segura\.png">/);
   assert.match(html, /<p>texto seguro<\/p>/);
+  assert.doesNotMatch(html, /\bsrc\s*=\s*["'][^"']*(?:&#106;avascript:|javascript:)/i);
+  assert.doesNotMatch(html, /\bxlink:href\s*=\s*["'][^"']*(?:java&#115;cript:|javascript:)/i);
   assert.doesNotMatch(html, /javascript:|display:none|alert\(4\)|conteúdo oculto/i);
 });
 
