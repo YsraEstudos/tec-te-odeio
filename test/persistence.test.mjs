@@ -28,9 +28,13 @@ test('índices Map/Set refletem cadernos e questões', () => {
   const q = { id: 'q1', number: 2 };
   const state = { biblioteca: { c1: { id: 'c1', questoes: [q] } } };
   hooks.indexarEstado(state);
-  assert.equal(hooks.indices.cadernosPorId.get('c1'), state.biblioteca.c1);
-  assert.equal(hooks.indices.questoesPorId.get('q1'), q);
-  assert.equal(hooks.indices.questaoIdsPorCaderno.get('c1').has('q1'), true);
+  assert.deepEqual(JSON.parse(JSON.stringify(hooks.estatisticasIndices())), {
+    cadernos: 1,
+    questoes: 1,
+    porCaderno: 1
+  });
+  assert.equal(hooks.indices, undefined);
+  assert.ok(JSON.stringify(hooks).length < 1024, 'hook global não deve carregar os registros indexados');
 });
 
 test('validação rejeita snapshots sem biblioteca e aceita agregado', () => {
@@ -48,6 +52,8 @@ test('persistência v2 declara stores e índices exigidos', () => {
   assert.match(source, /createIndex\('posicao'/);
   assert.match(source, /legacy-v1-archive/);
   assert.match(source, /SAVE_DEBOUNCE_MS = 5000/);
+  assert.doesNotMatch(source, /JSON\.stringify\(sanitizarParaPersistencia\(estado\)\)/);
+  assert.match(source, /salvarEstadoIdb\(estado\)/);
 });
 
 test('reconstrução meta+cadernos+questões preserva o agregado', () => {

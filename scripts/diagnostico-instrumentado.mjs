@@ -76,11 +76,11 @@ export function criarJanelaFalsa() {
     IDBDatabase: IDBDatabaseFake,
     fetch: (input) => Promise.resolve({ ok: true }),
     __TecFabricaPersistence: {
-      indices: {
-        cadernosPorId: { size: 2 },
-        questoesPorId: { size: 3 },
-        questaoIdsPorCaderno: { size: 2 }
-      }
+      estatisticasIndices: () => ({
+        cadernos: 2,
+        questoes: 3,
+        porCaderno: 2
+      })
     }
   };
   return janela;

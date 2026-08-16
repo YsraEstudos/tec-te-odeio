@@ -1,6 +1,6 @@
 {
   "name": "tec-fabrica-cadernos",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "monolith": "tec_fabrica_cadernos.user.js",
   "output": "dist/tec_fabrica_cadernos.user.js",
   "userscript": {

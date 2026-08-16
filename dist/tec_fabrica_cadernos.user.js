@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Tec Concursos — Fábrica de Cadernos
 // @namespace    tec-fabrica-cadernos
-// @version      2.0.0
+// @version      2.0.1
 // @description  Cria cadernos em lote a partir de um plano de matérias (com bancas e anos), coleta cada questão com o gabarito oficial e exporta HTML interativo + Excel completos.
 // @author       voce
 // @match        https://www.tecconcursos.com.br/*
@@ -78,7 +78,7 @@
 
     // Versão do script — espelha @version no cabeçalho do userscript; logada
     // no Console na inicialização para conferir a cópia em execução.
-    var SCRIPT_VERSION = '2.0.0';
+    var SCRIPT_VERSION = '2.0.1';
 
     /* =====================================================================
      * CONFIG
@@ -1392,9 +1392,12 @@
         Object.keys(valor.biblioteca || {}).forEach(function (key) {
             var original = valor.biblioteca[key];
             if (!original || !original.id) return;
-            var caderno = sanitizarParaPersistencia(original);
-            var lista = caderno.questoes || [];
-            delete caderno.questoes;
+            var cadernoBase = {};
+            Object.keys(original).forEach(function (campo) {
+                if (campo !== 'questoes') cadernoBase[campo] = original[campo];
+            });
+            var caderno = sanitizarParaPersistencia(cadernoBase);
+            var lista = Array.isArray(original.questoes) ? original.questoes : [];
             cadernos.push(caderno);
             lista.forEach(function (questao, index) {
                 if (!questao || !questao.id) return;
@@ -1407,21 +1410,29 @@
         return { cadernos: cadernos, questoes: questoes };
     }
 
-    function salvarSnapshot(json) {
-        var valor = typeof json === 'string' ? JSON.parse(json) : json;
-        if (!validarEstado(valor)) return Promise.reject(new Error('estado inválido para persistência'));
+    function prepararSnapshot(valor) {
+        valor = typeof valor === 'string' ? JSON.parse(valor) : valor;
+        if (!validarEstado(valor)) throw new Error('estado inválido para persistência');
         var normal = registrosNormalizados(valor);
+        return {
+            meta: estadoBaseParaMeta(valor),
+            cadernos: normal.cadernos,
+            questoes: normal.questoes
+        };
+    }
+
+    function persistirSnapshot(snapshot) {
         return idbTransacao([IDB_META_STORE, IDB_CADERNOS_STORE, IDB_QUESTOES_STORE], 'readwrite', function (tx) {
             var meta = tx.objectStore(IDB_META_STORE);
             var cs = tx.objectStore(IDB_CADERNOS_STORE);
             var qs = tx.objectStore(IDB_QUESTOES_STORE);
-            meta.put(estadoBaseParaMeta(valor));
+            meta.put(snapshot.meta);
             // Reconciliação dentro da mesma transação: registros atuais são
             // upsertados e somente IDs que desapareceram são removidos.
             var novosCadernos = new Map();
             var novasQuestoes = new Map();
-            normal.cadernos.forEach(function (c) { novosCadernos.set(String(c.id), c); cs.put(c); });
-            normal.questoes.forEach(function (q) { novasQuestoes.set(String(q.id), q); qs.put(q); });
+            snapshot.cadernos.forEach(function (c) { novosCadernos.set(String(c.id), c); cs.put(c); });
+            snapshot.questoes.forEach(function (q) { novasQuestoes.set(String(q.id), q); qs.put(q); });
             cs.getAll().onsuccess = function (event) {
                 (event.target.result || []).forEach(function (old) {
                     if (!novosCadernos.has(String(old.id))) cs.delete(old.id);
@@ -1433,6 +1444,16 @@
                 });
             };
         });
+    }
+
+    function salvarSnapshot(valor) {
+        var snapshot;
+        try {
+            snapshot = prepararSnapshot(valor);
+        } catch (e) {
+            return Promise.reject(e);
+        }
+        return persistirSnapshot(snapshot);
     }
 
     function carregarV2() {
@@ -1486,14 +1507,20 @@
         return carregarV2().then(function (v2) { return v2 || migrarV1(); });
     }
 
-    function salvarEstadoIdb(json) {
+    function salvarEstadoIdb(valor) {
         if (!window.indexedDB) return Promise.resolve();
+        var snapshot;
+        try {
+            snapshot = prepararSnapshot(valor);
+        } catch (e) {
+            return Promise.reject(e);
+        }
         // Serializa as transações e devolve a promessa da gravação. Isso é
         // essencial para irPara(): uma navegação completa pode descarregar a
         // página antes de um setTimeout(0) ou de uma transação solta terminar.
         var anterior = saveChain.catch(function () { return false; });
         var transacao = anterior.then(function () {
-            return salvarSnapshot(json);
+            return persistirSnapshot(snapshot);
         });
         saveChain = transacao.then(function () {
             return true;
@@ -1542,22 +1569,20 @@
         return new Promise(function (resolve, reject) {
             saveTimer = setTimeout(function () {
                 saveTimer = null; saveCritical = false;
-                var snapshot;
-                try { snapshot = JSON.stringify(sanitizarParaPersistencia(estado)); }
-                catch (e) {
-                    log('ERRO: falha ao serializar o estado (' + (e && e.name || e) + ').', {
-                        tipo: 'erro', nivel: 'erro', persist: false
-                    });
-                    estado.status = 'pausado';
-                    if (checkpointCritico === true) { reject(e); return; }
-                    resolve(); return;
-                }
-                salvarEstadoIdb(snapshot).then(resolve, function (e) {
+                salvarEstadoIdb(estado).then(resolve, function (e) {
                     if (checkpointCritico === true) { reject(e); return; }
                     resolve();
                 });
             }, atraso);
         });
+    }
+
+    function estatisticasIndices() {
+        return {
+            cadernos: cadernosPorId.size,
+            questoes: questoesPorId.size,
+            porCaderno: questaoIdsPorCaderno.size
+        };
     }
 
     if (typeof window !== 'undefined') {
@@ -1567,7 +1592,7 @@
             validarEstado: validarEstado,
             indexarEstado: indexarEstado,
             salvarSnapshot: salvarSnapshot,
-            indices: { cadernosPorId: cadernosPorId, questoesPorId: questoesPorId, questaoIdsPorCaderno: questaoIdsPorCaderno }
+            estatisticasIndices: estatisticasIndices
             ,validarMetaV2: validarMetaV2,
             reconstruirEstadoV2: reconstruirEstadoV2,
             parseLegadoV1: parseLegadoV1

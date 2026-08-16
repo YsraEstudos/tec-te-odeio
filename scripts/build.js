@@ -7,7 +7,7 @@
  * 1. Lê manifest.json (fonte de verdade: versão, ordem dos fragmentos).
  * 2. Concatena os fragmentos na ordem explícita do manifest.
  * 3. Sincroniza a versão: @version (cabeçalho userscript) e SCRIPT_VERSION
- *    (variável em runtime) recebem manifest.version (2.0.0).
+ *    (variável em runtime) recebem manifest.version.
  * 4. Escreve dist/tec_fabrica_cadernos.user.js.
  * 5. Verificação embutida: o resultado deve ser byte-a-byte igual ao
  *    monólito exceto pelas linhas de versão sincronizadas; senão, sai com

@@ -11,7 +11,7 @@ const orchestratorSource = readFileSync(resolve(root, 'src/fabrica/15-orquestrad
 
 test('salvarEstado expõe a conclusão da transação usada pelo checkpoint crítico', () => {
   assert.match(persistenceSource, /function salvarEstado\(checkpointCritico\)[\s\S]*?return new Promise\(function \(resolve, reject\)/);
-  assert.match(persistenceSource, /salvarEstadoIdb\(snapshot\)\.then\(resolve, function \(e\)/);
+  assert.match(persistenceSource, /salvarEstadoIdb\(estado\)\.then\(resolve, function \(e\)/);
   assert.match(persistenceSource, /var anterior = saveChain\.catch\(function \(\) \{ return false; \}\)/);
 });
 

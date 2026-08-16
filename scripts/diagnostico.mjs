@@ -385,12 +385,8 @@ var TFD_instalar = function (janela) {
                 };
             }
             var p = window.__TecFabricaPersistence;
-            if (p && p.indices) {
-                out.indices = {
-                    cadernos: p.indices.cadernosPorId && p.indices.cadernosPorId.size,
-                    questoes: p.indices.questoesPorId && p.indices.questoesPorId.size,
-                    porCaderno: p.indices.questaoIdsPorCaderno && p.indices.questaoIdsPorCaderno.size
-                };
+            if (p && typeof p.estatisticasIndices === 'function') {
+                out.indices = p.estatisticasIndices();
             }
             return out;
         }
