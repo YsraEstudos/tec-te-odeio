@@ -7,13 +7,13 @@ import { resolve } from 'node:path';
 const root = resolve(import.meta.dirname, '..');
 const source = readFileSync(resolve(root, 'src/fabrica/03-log.js'), 'utf8');
 
-function loadLogger({ logs = [], fase = 'coletando' } = {}) {
+function loadLogger({ logs = [], fase = 'coletando', estadoExtras = {} } = {}) {
   const eventos = [];
   const saves = [];
   const window = {};
   const contexto = {
     window,
-    estado: { fase, logs },
+    estado: { fase, logs, ...estadoExtras },
     UI: { appendLog: (evento) => eventos.push(evento) },
     salvarEstado: () => saves.push(true),
     console: { log() {}, warn() {}, error() {} },
@@ -48,8 +48,36 @@ test('logger preserva tipo, nível, fase e contexto permitido', () => {
     contexto: { questaoId: 'q-1', metodo: 'cache', opcoes: 5 },
   });
 
-  assert.deepEqual(JSON.parse(JSON.stringify(evento.contexto)), { questaoId: 'q-1', metodo: 'cache', opcoes: 5 });
+  assert.equal(evento.contexto.questaoId, 'q-1');
+  assert.equal(evento.contexto.metodo, 'cache');
+  assert.equal(evento.contexto.opcoes, 5);
+  assert.equal(evento.contexto.operacional.faseEstado, 'resolvendo');
+  assert.equal(typeof evento.contexto.operacional.bootId, 'string');
   assert.match(api.formatarEventoLog(evento), /q-1/);
+});
+
+test('logger adiciona contexto operacional da matéria, lote e caderno', () => {
+  const { api } = loadLogger({
+    estadoExtras: {
+      status: 'rodando',
+      planIndex: 4,
+      loteInicio: 0,
+      loteFim: 20,
+      passada: 'criacao',
+      plano: { matters: [{ title: 'A' }, { title: 'B' }, { title: 'C' }, { title: 'D' }, { title: 'Concordância' }] },
+      cadernoAtual: { id: 'c-1', coletadas: 3, total: 30, completo: false },
+    },
+  });
+  const evento = api.log('falha de diagnóstico', { persist: false });
+
+  assert.equal(evento.contexto.operacional.estadoStatus, 'rodando');
+  assert.equal(evento.contexto.operacional.planIndex, 4);
+  assert.equal(evento.contexto.operacional.loteFim, 20);
+  assert.equal(evento.contexto.operacional.passada, 'criacao');
+  assert.equal(evento.contexto.operacional.materiaAtual, 'Concordância');
+  assert.equal(evento.contexto.operacional.cadernoId, 'c-1');
+  assert.equal(evento.contexto.operacional.cadernoColetadas, 3);
+  assert.equal(evento.contexto.operacional.cadernoTotal, 30);
 });
 
 test('contexto do log redige segredos e trunca dados grandes', () => {

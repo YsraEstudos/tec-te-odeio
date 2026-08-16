@@ -952,6 +952,8 @@
     var LOG_NIVEIS = { info: true, ok: true, warn: true, erro: true };
     var logSequencia = 0;
     var logPersistTimer = null;
+    var LOG_BOOT_AT = Date.now();
+    var LOG_BOOT_ID = LOG_BOOT_AT.toString(36) + '-' + Math.random().toString(36).slice(2, 8);
 
     function chaveSensivelLog(chave) {
         return /token|cookie|authorization|senha|password|secret|session|credential|innerhtml|responsetext|querystring/i.test(String(chave));
@@ -1000,6 +1002,58 @@
 
     function normalizarContextoLog(valor) {
         return normalizarValorLog(valor, [], 0, false);
+    }
+
+    function contextoAutomaticoLog(state) {
+        var contexto = {
+            bootId: LOG_BOOT_ID,
+            bootMs: Math.max(0, Date.now() - LOG_BOOT_AT)
+        };
+        try {
+            if (typeof location !== 'undefined' && location && location.pathname) contexto.rota = String(location.pathname);
+            if (typeof paginaAtual === 'function') contexto.pagina = paginaAtual();
+        } catch (e) {}
+        if (state && typeof state === 'object') {
+            if (state.status !== undefined) contexto.estadoStatus = state.status;
+            if (state.fase !== undefined) contexto.faseEstado = state.fase;
+            if (state.planIndex !== undefined) contexto.planIndex = state.planIndex;
+            if (state.loteInicio !== undefined) contexto.loteInicio = state.loteInicio;
+            if (state.loteFim !== undefined) contexto.loteFim = state.loteFim;
+            if (state.passada !== undefined) contexto.passada = state.passada;
+            if (state.plano && Array.isArray(state.plano.matters)) {
+                contexto.totalMaterias = state.plano.matters.length;
+                var materia = state.plano.matters[state.planIndex];
+                if (materia && materia.title) contexto.materiaAtual = truncarStringLog(materia.title, 160);
+            }
+            if (state.cadernoAtual && typeof state.cadernoAtual === 'object') {
+                if (state.cadernoAtual.id !== undefined) contexto.cadernoId = String(state.cadernoAtual.id);
+                if (state.cadernoAtual.coletadas !== undefined) contexto.cadernoColetadas = state.cadernoAtual.coletadas;
+                if (state.cadernoAtual.total !== undefined) contexto.cadernoTotal = state.cadernoAtual.total;
+                if (state.cadernoAtual.completo !== undefined) contexto.cadernoCompleto = state.cadernoAtual.completo;
+            }
+            if (Array.isArray(state.logs)) contexto.logsNoEstado = state.logs.length;
+        }
+        try {
+            if (typeof cadernoIdDaUrl === 'function') {
+                var cadernoRota = cadernoIdDaUrl();
+                if (cadernoRota) contexto.cadernoRotaId = String(cadernoRota);
+            }
+        } catch (e2) {}
+        try {
+            if (typeof cicloExecucaoId !== 'undefined') contexto.cicloExecucaoId = cicloExecucaoId;
+        } catch (e3) {}
+        return contexto;
+    }
+
+    function comporContextoLog(explicito, state) {
+        var contexto = {};
+        if (explicito && typeof explicito === 'object' && !Array.isArray(explicito)) {
+            Object.keys(explicito).forEach(function (chave) { contexto[chave] = explicito[chave]; });
+        }
+        if (!Object.prototype.hasOwnProperty.call(contexto, 'operacional')) {
+            contexto.operacional = contextoAutomaticoLog(state);
+        }
+        return contexto;
     }
 
     function formatarEventoLog(evento) {
@@ -1051,7 +1105,7 @@
             nivel: nivel,
             fase: truncarStringLog(fase, LOG_MAX_FASE),
             mensagem: truncarStringLog(mensagem, LOG_MAX_STRING),
-            contexto: Object.prototype.hasOwnProperty.call(options, 'contexto') ? normalizarContextoLog(options.contexto) : null
+            contexto: normalizarContextoLog(comporContextoLog(options.contexto, state))
         };
 
         if (state) {
@@ -1070,6 +1124,7 @@
         window.__TecFabricaLog = {
             log: log,
             normalizarContextoLog: normalizarContextoLog,
+            contextoAutomaticoLog: contextoAutomaticoLog,
             formatarEventoLog: formatarEventoLog
         };
         if (typeof ocultarGlobal === 'function') ocultarGlobal('__TecFabricaLog', window.__TecFabricaLog);
