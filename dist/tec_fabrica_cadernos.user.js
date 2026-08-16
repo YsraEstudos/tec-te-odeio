@@ -2754,6 +2754,15 @@
         return el ? parseInt(clean(el.textContent).replace(/\D/g, ''), 10) || 0 : 0;
     }
 
+    async function aguardarFiltrosProntos() {
+        await esperar(function () {
+            var nome = document.querySelector('#nomeCadernoId');
+            var abas = visiveis('.menu-alternador-opcao');
+            var abaMateria = abas.some(function (aba) { return mesmoTexto(aba.innerText, 'Matéria e assunto'); });
+            return !!nome && abaMateria;
+        }, (CONFIG.loadTimeout || 20000) + 10000, 'Os controles da página de filtros não terminaram de carregar.');
+    }
+
     async function aplicarFiltros(materia, plano) {
         log('Iniciando aplicação dos filtros da matéria.', {
             tipo: 'observacao', fase: 'filtros',
@@ -3701,21 +3710,8 @@
                     irPara(urlFiltros()); // navega → próximo boot retoma em criar-novo
                     return;
                 }
-                if (!document.querySelector('#nomeCadernoId')) {
-                    await workerSleep(2500);
-                    if (!document.querySelector('#nomeCadernoId')) {
-                        estado.status = 'erro';
-                        estado.erro = 'A página de filtros não carregou os controles de criação.';
-                        estado.fase = 'nenhuma';
-                        salvarEstado();
-                        log('Controles de criação não carregaram na página de filtros.', {
-                            tipo: 'erro', nivel: 'erro', fase: 'criar-novo', contexto: { materia: materia.title, pagina: paginaAtual() }
-                        });
-                        UI.setStatus('Erro: ' + estado.erro);
-                        return;
-                    }
-                }
                 try {
+                    await aguardarFiltrosProntos();
                     UI.setStatus('Aplicando filtros: ' + materia.title);
                     await aplicarFiltros(materia, plano);
                     var contagem = lerContagem();

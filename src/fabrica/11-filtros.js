@@ -183,6 +183,15 @@
         return el ? parseInt(clean(el.textContent).replace(/\D/g, ''), 10) || 0 : 0;
     }
 
+    async function aguardarFiltrosProntos() {
+        await esperar(function () {
+            var nome = document.querySelector('#nomeCadernoId');
+            var abas = visiveis('.menu-alternador-opcao');
+            var abaMateria = abas.some(function (aba) { return mesmoTexto(aba.innerText, 'Matéria e assunto'); });
+            return !!nome && abaMateria;
+        }, (CONFIG.loadTimeout || 20000) + 10000, 'Os controles da página de filtros não terminaram de carregar.');
+    }
+
     async function aplicarFiltros(materia, plano) {
         log('Iniciando aplicação dos filtros da matéria.', {
             tipo: 'observacao', fase: 'filtros',

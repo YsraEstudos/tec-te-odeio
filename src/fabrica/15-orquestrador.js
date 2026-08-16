@@ -419,21 +419,8 @@
                     irPara(urlFiltros()); // navega → próximo boot retoma em criar-novo
                     return;
                 }
-                if (!document.querySelector('#nomeCadernoId')) {
-                    await workerSleep(2500);
-                    if (!document.querySelector('#nomeCadernoId')) {
-                        estado.status = 'erro';
-                        estado.erro = 'A página de filtros não carregou os controles de criação.';
-                        estado.fase = 'nenhuma';
-                        salvarEstado();
-                        log('Controles de criação não carregaram na página de filtros.', {
-                            tipo: 'erro', nivel: 'erro', fase: 'criar-novo', contexto: { materia: materia.title, pagina: paginaAtual() }
-                        });
-                        UI.setStatus('Erro: ' + estado.erro);
-                        return;
-                    }
-                }
                 try {
+                    await aguardarFiltrosProntos();
                     UI.setStatus('Aplicando filtros: ' + materia.title);
                     await aplicarFiltros(materia, plano);
                     var contagem = lerContagem();
