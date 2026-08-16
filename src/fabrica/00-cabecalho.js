@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Tec Concursos — Fábrica de Cadernos
-// @namespace    tec-fabrica-cadernos
+// @namespace    tec-fabrica-cadernos-v2
 // @version      1.1.0
 // @description  Cria cadernos em lote a partir de um plano de matérias (com bancas e anos), coleta cada questão com o gabarito oficial e exporta HTML interativo + Excel completos.
 // @author       voce
-// @match        https://www.tecconcursos.com.br/*
+// @match        https://www.tecconcursos.com.br/questoes/*
 // @match        https://www.google.com/recaptcha/api2/anchor*
 // @match        https://www.recaptcha.net/recaptcha/api2/anchor*
 // @grant        none
@@ -76,7 +76,10 @@
         return;
     }
 
+    // Nunca inicializa a máquina de estado em login, conta ou outras áreas.
+    // Isso evita retomadas e navegações enquanto a sessão está inválida.
+    if (location.hostname === 'www.tecconcursos.com.br' && !/^\/questoes(?:\/|$)/i.test(location.pathname)) return;
+
     // Versão do script — espelha @version no cabeçalho do userscript; logada
     // no Console na inicialização para conferir a cópia em execução.
     var SCRIPT_VERSION = '1.1.0';
-

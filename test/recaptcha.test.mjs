@@ -7,10 +7,10 @@ const root = resolve(import.meta.dirname, '..');
 const distSource = readFileSync(resolve(root, 'dist/tec_fabrica_cadernos.user.js'), 'utf8');
 const coletorSource = readFileSync(resolve(root, 'tec_coletor.user.js'), 'utf8');
 const manifestSource = readFileSync(resolve(root, 'src/fabrica/manifest.json'), 'utf8');
+const manifest = JSON.parse(manifestSource);
 const domHelpersSource = readFileSync(resolve(root, 'src/fabrica/03-dom-helpers.js'), 'utf8');
 
 test('manifesto e headers contêm @match para iframe do reCAPTCHA', () => {
-  const manifest = JSON.parse(manifestSource);
   assert.ok(manifest.userscript.match.includes('https://www.google.com/recaptcha/api2/anchor*'));
   assert.ok(manifest.userscript.match.includes('https://www.recaptcha.net/recaptcha/api2/anchor*'));
 
@@ -19,6 +19,15 @@ test('manifesto e headers contêm @match para iframe do reCAPTCHA', () => {
 
   assert.match(coletorSource, /\/\/ @match\s+https:\/\/www\.google\.com\/recaptcha\/api2\/anchor\*/);
   assert.match(coletorSource, /\/\/ @match\s+https:\/\/www\.recaptcha\.net\/recaptcha\/api2\/anchor\*/);
+});
+
+test('fábrica principal só é injetada nas rotas de questões', () => {
+  assert.equal(manifest.userscript.namespace, 'tec-fabrica-cadernos-v2');
+  assert.equal(manifest.installOutput, 'dist/tec_fabrica_cadernos_v2.user.js');
+  assert.ok(manifest.userscript.match.includes('https://www.tecconcursos.com.br/questoes/*'));
+  assert.ok(!manifest.userscript.match.includes('https://www.tecconcursos.com.br/*'));
+  assert.match(distSource, /\/\/ @match\s+https:\/\/www\.tecconcursos\.com\.br\/questoes\/\*/);
+  assert.ok(distSource.includes("!/^\\/questoes(?:\\/|$)/i.test(location.pathname)"));
 });
 
 test('código de auto-clique no reCAPTCHA identifica iframe e elemento .recaptcha-checkbox-border', () => {

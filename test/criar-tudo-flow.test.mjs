@@ -41,6 +41,11 @@ test('orquestrador: caderno registrado na passada de criação apenas avança', 
   assert.match(orchestratorSource, /if \(passadaCriacao\(\)\) \{\s*log\('decisão: caderno já registrado; avançando matéria \(passada de criação\)\.'/);
 });
 
+test('orquestrador: caderno recém-criado avança diretamente na passada de criação', () => {
+  assert.match(orchestratorSource, /var deveAvancarSemColetar = passadaCriacao\(\);/);
+  assert.match(orchestratorSource, /if \(deveAvancarSemColetar\) \{\s*avancarMateria\(\);\s*return;/);
+});
+
 test('orquestrador: passada de coleta pula matérias sem caderno', () => {
   assert.match(orchestratorSource, /estado\.passada === 'coleta' && !existente/);
   assert.match(orchestratorSource, /a passada de criação já rodou/);

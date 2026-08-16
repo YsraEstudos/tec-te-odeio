@@ -422,15 +422,21 @@
                 if (paginaAtual() === 'caderno') {
                     var novoId = cadernoIdDaUrl();
                     var contagemSalva = estado.pendenciaContagem || 0;
+                    var deveAvancarSemColetar = passadaCriacao();
                     estado.biblioteca[novoId] = { id: novoId, titulo: materia.title, categoria: materia.group || 'Plano', total: contagemSalva, coletadas: 0, completo: false, questoes: [] };
                     delete estado.pendenciaContagem;
                     estado.fase = 'nenhuma';
-                    salvarEstado();
+                    estado.cadernoAtual = deveAvancarSemColetar ? null : estado.biblioteca[novoId];
+                    salvarEstado(deveAvancarSemColetar);
                     UI.renderBiblioteca();
-                    log('Decisão: caderno recém-criado registrado.' + (passadaCriacao() ? ' Passada de criação: avançando matéria sem coletar.' : ' Iniciando coleta.'), {
+                    log('Decisão: caderno recém-criado registrado.' + (deveAvancarSemColetar ? ' Passada de criação: avançando matéria sem coletar.' : ' Iniciando coleta.'), {
                         tipo: 'decisao', nivel: 'ok', fase: 'criando',
-                        contexto: { materia: materia.title, cadernoId: novoId, questoes: contagemSalva, passada: passadaCriacao() ? 'criacao' : 'coleta' }
+                        contexto: { materia: materia.title, cadernoId: novoId, questoes: contagemSalva, passada: deveAvancarSemColetar ? 'criacao' : 'coleta' }
                     });
+                    if (deveAvancarSemColetar) {
+                        avancarMateria();
+                        return;
+                    }
                     processarLote();
                     return;
                 }

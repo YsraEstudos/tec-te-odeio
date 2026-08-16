@@ -7,7 +7,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const manifestPath = resolve(root, 'src/fabrica/manifest.json');
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
 const version = manifest.version;
-if (version !== '2.0.1') throw new Error(`versão inesperada: ${version}`);
+if (version !== '2.0.2') throw new Error(`versão inesperada: ${version}`);
 if (!Array.isArray(manifest.fragments) || manifest.fragments.length === 0) {
   throw new Error('manifest sem fragmentos');
 }
@@ -37,15 +37,23 @@ const check = spawnSync(process.execPath, ['--check'], { input: output, encoding
 if (check.status !== 0) throw new Error(`node --check falhou:\n${check.stderr || check.stdout}`);
 
 const outPath = resolve(root, manifest.output);
-mkdirSync(dirname(outPath), { recursive: true });
-const tempPath = `${outPath}.tmp-${process.pid}`;
-try {
-  writeFileSync(tempPath, output, 'utf8');
-  renameSync(tempPath, outPath);
-} catch (error) {
-  if (existsSync(tempPath)) unlinkSync(tempPath);
-  throw error;
+const installPath = manifest.installOutput ? resolve(root, manifest.installOutput) : null;
+
+function escreverAtomico(path) {
+  mkdirSync(dirname(path), { recursive: true });
+  const tempPath = `${path}.tmp-${process.pid}`;
+  try {
+    writeFileSync(tempPath, output, 'utf8');
+    renameSync(tempPath, path);
+  } catch (error) {
+    if (existsSync(tempPath)) unlinkSync(tempPath);
+    throw error;
+  }
 }
 
+escreverAtomico(outPath);
+if (installPath && installPath !== outPath) escreverAtomico(installPath);
+
 console.log(`[build] OK ${manifest.fragments.length} fragmentos -> ${manifest.output}`);
+if (manifest.installOutput) console.log(`[build] instalação limpa -> ${manifest.installOutput}`);
 console.log(`[build] versão ${version}; APIs globais e sintaxe validadas`);

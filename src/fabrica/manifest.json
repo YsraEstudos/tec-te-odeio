@@ -1,15 +1,16 @@
 {
   "name": "tec-fabrica-cadernos",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "monolith": "tec_fabrica_cadernos.user.js",
   "output": "dist/tec_fabrica_cadernos.user.js",
+  "installOutput": "dist/tec_fabrica_cadernos_v2.user.js",
   "userscript": {
     "name": "Tec Concursos — Fábrica de Cadernos",
-    "namespace": "tec-fabrica-cadernos",
+    "namespace": "tec-fabrica-cadernos-v2",
     "description": "Cria cadernos em lote a partir de um plano de matérias (com bancas e anos), coleta cada questão com o gabarito oficial e exporta HTML interativo + Excel completos.",
     "author": "voce",
     "match": [
-      "https://www.tecconcursos.com.br/*",
+      "https://www.tecconcursos.com.br/questoes/*",
       "https://www.google.com/recaptcha/api2/anchor*",
       "https://www.recaptcha.net/recaptcha/api2/anchor*"
     ],

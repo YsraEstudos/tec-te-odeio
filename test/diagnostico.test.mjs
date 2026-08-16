@@ -18,7 +18,7 @@ test('gerador cria variante válida, marcada e determinística (sem tocar em dis
   assert.equal(src.split(MARKER_INICIO).length - 1, 1, 'marcador de início único');
   assert.equal(src.split(MARKER_FIM).length - 1, 1, 'marcador de fim único');
   assert.match(src, /window\.__TecFabricaDiagnostico\s*=/);
-  assert.match(src, /^\/\/ @version\s+2\.0\.1$/m);
+  assert.match(src, /^\/\/ @version\s+2\.0\.2$/m);
   const check = spawnSync(process.execPath, ['--check', VARIANTE], { encoding: 'utf8' });
   assert.equal(check.status, 0, check.stderr);
   // determinística: regerar produz bytes idênticos

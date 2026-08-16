@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Tec Concursos — Fábrica de Cadernos
-// @namespace    tec-fabrica-cadernos
-// @version      2.0.1
+// @namespace    tec-fabrica-cadernos-v2
+// @version      2.0.2
 // @description  Cria cadernos em lote a partir de um plano de matérias (com bancas e anos), coleta cada questão com o gabarito oficial e exporta HTML interativo + Excel completos.
 // @author       voce
-// @match        https://www.tecconcursos.com.br/*
+// @match        https://www.tecconcursos.com.br/questoes/*
 // @match        https://www.google.com/recaptcha/api2/anchor*
 // @match        https://www.recaptcha.net/recaptcha/api2/anchor*
 // @grant        none
@@ -76,10 +76,13 @@
         return;
     }
 
+    // Nunca inicializa a máquina de estado em login, conta ou outras áreas.
+    // Isso evita retomadas e navegações enquanto a sessão está inválida.
+    if (location.hostname === 'www.tecconcursos.com.br' && !/^\/questoes(?:\/|$)/i.test(location.pathname)) return;
+
     // Versão do script — espelha @version no cabeçalho do userscript; logada
     // no Console na inicialização para conferir a cópia em execução.
-    var SCRIPT_VERSION = '2.0.1';
-
+    var SCRIPT_VERSION = '2.0.2';
     /* =====================================================================
      * CONFIG
      * =================================================================== */
@@ -3479,15 +3482,21 @@
                 if (paginaAtual() === 'caderno') {
                     var novoId = cadernoIdDaUrl();
                     var contagemSalva = estado.pendenciaContagem || 0;
+                    var deveAvancarSemColetar = passadaCriacao();
                     estado.biblioteca[novoId] = { id: novoId, titulo: materia.title, categoria: materia.group || 'Plano', total: contagemSalva, coletadas: 0, completo: false, questoes: [] };
                     delete estado.pendenciaContagem;
                     estado.fase = 'nenhuma';
-                    salvarEstado();
+                    estado.cadernoAtual = deveAvancarSemColetar ? null : estado.biblioteca[novoId];
+                    salvarEstado(deveAvancarSemColetar);
                     UI.renderBiblioteca();
-                    log('Decisão: caderno recém-criado registrado.' + (passadaCriacao() ? ' Passada de criação: avançando matéria sem coletar.' : ' Iniciando coleta.'), {
+                    log('Decisão: caderno recém-criado registrado.' + (deveAvancarSemColetar ? ' Passada de criação: avançando matéria sem coletar.' : ' Iniciando coleta.'), {
                         tipo: 'decisao', nivel: 'ok', fase: 'criando',
-                        contexto: { materia: materia.title, cadernoId: novoId, questoes: contagemSalva, passada: passadaCriacao() ? 'criacao' : 'coleta' }
+                        contexto: { materia: materia.title, cadernoId: novoId, questoes: contagemSalva, passada: deveAvancarSemColetar ? 'criacao' : 'coleta' }
                     });
+                    if (deveAvancarSemColetar) {
+                        avancarMateria();
+                        return;
+                    }
                     processarLote();
                     return;
                 }
