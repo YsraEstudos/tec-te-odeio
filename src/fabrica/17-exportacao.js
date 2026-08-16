@@ -751,6 +751,7 @@
     // `window` existe e `module` não — o guard não altera o comportamento.
     if (typeof window !== 'undefined') {
         window.__TecFabricaExport = __TecFabricaExport;
+        if (typeof ocultarGlobal === 'function') ocultarGlobal('__TecFabricaExport', window.__TecFabricaExport);
     } else if (typeof module !== 'undefined' && module.exports) {
         module.exports = __TecFabricaExport;
     }

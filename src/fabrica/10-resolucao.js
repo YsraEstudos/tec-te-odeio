@@ -101,8 +101,8 @@
                     return;
                 }
             }
-            // 3. Clique para resolver (fallback — opcional, desligável na Config)
-            if (estado.config && estado.config.usarCliqueGabarito === false) {
+            // 3. Clique para resolver (fallback — opt-in explícito na Config)
+            if (estado.config && estado.config.usarCliqueGabarito !== true) {
                 GabaritoInterceptor.estatisticas.semGabarito += 1;
                 GabaritoInterceptor.ultimoMetodo = 'clique-desativado';
                 log('Decisão: clique de resolução está desativado na configuração.', {

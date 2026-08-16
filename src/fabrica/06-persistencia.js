@@ -301,7 +301,6 @@
                     legado = parseLegadoV1(rec.json);
                     if (!legado) {
                         migrationFailed = true;
-                        console.warn('[TecFabrica] legado v1 inválido; preservado.');
                         resolve({ failed: true, reason: 'legado v1 inválido' }); return;
                     }
                     salvarSnapshot(legado).then(function () {
@@ -309,9 +308,8 @@
                             t.objectStore(IDB_META_STORE).put({ key: 'legacy-v1-archive', schema: 2, archivedAt: Date.now(), json: rec.json });
                             t.objectStore(IDB_LEGACY_STORE).delete(CONFIG.storageKey);
                         });
-                    }).then(function () { console.log('[TecFabrica] estado v1 migrado para v2.'); resolve(legado); }).catch(function (e) {
+                    }).then(function () { resolve(legado); }).catch(function (e) {
                         migrationFailed = true;
-                        console.warn('[TecFabrica] migração v1 falhou; legado preservado.', e);
                         resolve({ failed: true, reason: 'falha na migração v1' });
                     });
                 };
@@ -341,8 +339,7 @@
         });
         saveChain = transacao.then(function () {
             return true;
-        }, function (e) {
-            console.warn('[TecFabrica] aviso: falha ao salvar no IndexedDB (' + (e && e.name || e) + ').');
+        }, function () {
             return false;
         });
         return transacao;
@@ -371,7 +368,6 @@
             estado.status = 'erro';
             estado.erro = e && e.message || String(e);
             estado.mensagem = 'Falha ao carregar o estado; dados legados foram preservados.';
-            console.warn('[TecFabrica] AVISO: IndexedDB indisponível ou falhou a leitura — estado em memória preservado (' + (e && e.message || e) + ').');
             indexarEstado(estado); return estado;
         });
     }
@@ -415,4 +411,5 @@
             parseLegadoV1: parseLegadoV1
             ,criarDebounce: criarDebounce
         };
+        if (typeof ocultarGlobal === 'function') ocultarGlobal('__TecFabricaPersistence', window.__TecFabricaPersistence);
     }

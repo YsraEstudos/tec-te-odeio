@@ -59,6 +59,12 @@
       "lines": ""
     },
     {
+      "id": "02-anti-detecao",
+      "file": "02-anti-detecao.js",
+      "section": "ANTI-TELEMETRIA & DISCRIÇÃO TOTAL",
+      "lines": ""
+    },
+    {
       "id": "03",
       "file": "03-dom-helpers.js",
       "section": "DOM HELPERS",

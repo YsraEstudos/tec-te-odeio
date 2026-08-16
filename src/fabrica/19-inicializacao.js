@@ -1,7 +1,24 @@
-    /* =====================================================================
+/* =====================================================================
      * INICIALIZAÇÃO
      * =================================================================== */
     var autoResumeTimer = null;
+
+    // Discreção antes de qualquer outra coisa: bloqueia trackers de terceiros
+    // e oculta sinais de automação do navegador.
+    if (typeof bloquearTelemetria === 'function') bloquearTelemetria();
+    if (typeof mascararFingerprint === 'function') mascararFingerprint();
+
+    function instalarAtalhoPainel() {
+        try {
+            document.addEventListener('keydown', function (e) {
+                if (e.altKey && e.shiftKey && e.code === 'KeyF') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (typeof alternarPainel === 'function') alternarPainel();
+                }
+            });
+        } catch (e) {}
+    }
 
     function cancelarAutoResumir() {
         if (autoResumeTimer === null) return;
@@ -32,6 +49,7 @@
             contexto: { temPlano: !!estado.plano, materias: estado.plano ? estado.plano.matters.length : 0, status: estado.status }
         });
         criarUI();
+        instalarAtalhoPainel();
         if (estado.plano) {
             UI.setStatus(estado.plano.matters.length + ' matérias carregadas' + (estado.status === 'pausado' ? ' — retome de onde parou' : ''));
         } else {
@@ -110,4 +128,5 @@
     });
 
     window.__TecFabricaUI = UI;
+    if (typeof ocultarGlobal === 'function') ocultarGlobal('__TecFabricaUI', window.__TecFabricaUI);
 })();

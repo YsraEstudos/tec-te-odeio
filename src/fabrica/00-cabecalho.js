@@ -59,7 +59,6 @@
                         setTimeout(function () {
                             try {
                                 checkbox.click();
-                                console.log('[TecFabrica] Checkbox do reCAPTCHA (.recaptcha-checkbox-border) clicado automaticamente.');
                             } catch (e) {
                                 try {
                                     checkbox.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));

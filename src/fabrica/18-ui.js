@@ -134,6 +134,7 @@
             '</div>' +
             '<div class="tf-corpo" id="tf-corpo"></div>';
         document.body.appendChild(painelEl);
+        painelEl.style.display = 'none';
 
         painelEl.querySelectorAll('.tf-aba').forEach(function (b) {
             b.addEventListener('click', function () { mostrarAba(b.getAttribute('data-aba')); });
@@ -148,6 +149,11 @@
         });
 
         mostrarAba('plano');
+    }
+
+    function alternarPainel() {
+        if (!painelEl) return;
+        painelEl.style.display = painelEl.style.display === 'none' ? '' : 'none';
     }
 
     function mostrarAba(aba) {
@@ -242,7 +248,7 @@
             '<div class="tf-linha"><input type="checkbox" id="tf-auto" ' + (c.autoContinuarLote ? 'checked' : '') + '><label>Continuar lotes automaticamente</label></div>' +
             '<div class="tf-linha"><input type="checkbox" id="tf-anuladas" ' + ((c.removeCancelled !== false) ? 'checked' : '') + '><label>Remover questões anuladas</label></div>' +
             '<div class="tf-linha"><input type="checkbox" id="tf-desatualizadas" ' + ((c.removeOutdated !== false) ? 'checked' : '') + '><label>Remover questões desatualizadas</label></div>' +
-            '<div class="tf-linha"><input type="checkbox" id="tf-clique-gabarito" ' + ((c.usarCliqueGabarito !== false) ? 'checked' : '') + '><label>Clique para obter gabarito (apenas no modo Com Gabarito)</label></div>' +
+            '<div class="tf-linha"><input type="checkbox" id="tf-clique-gabarito" ' + ((c.usarCliqueGabarito === true) ? 'checked' : '') + '><label>Clique para obter gabarito (apenas no modo Com Gabarito)</label></div>' +
             '<div class="tf-secao-titulo">Bancas (uma por linha)</div>' +
             '<textarea id="tf-bancas" style="min-height:80px">' + (c.banks || CONFIG.banks).join('\n') + '</textarea>' +
             '<div class="tf-secao-titulo">Anos (separados por vírgula)</div>' +
@@ -399,6 +405,12 @@
                         modoCriacao: CONFIG.modoCriacao,
                         removeCancelled: CONFIG.removeCancelled,
                         removeOutdated: CONFIG.removeOutdated,
+                        usarCliqueGabarito: CONFIG.usarCliqueGabarito,
+                        modoOperacao: CONFIG.modoOperacao,
+                        modoColeta: CONFIG.modoColeta,
+                        perfilStealth: CONFIG.perfilStealth,
+                        stealthWpm: CONFIG.stealthWpm,
+                        stealthCoffeeBreakAtivo: CONFIG.stealthCoffeeBreakAtivo,
                         banks: CONFIG.banks.slice(),
                         years: CONFIG.years.slice()
                     };
@@ -675,5 +687,6 @@
             renderEventos: renderEventosLog,
             textoCompleto: textoCompletoLog
         };
+        if (typeof ocultarGlobal === 'function') ocultarGlobal('__TecFabricaLogUI', window.__TecFabricaLogUI);
     }
 

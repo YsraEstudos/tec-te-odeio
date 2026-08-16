@@ -59,7 +59,6 @@
                         setTimeout(function () {
                             try {
                                 checkbox.click();
-                                console.log('[TecFabrica] Checkbox do reCAPTCHA (.recaptcha-checkbox-border) clicado automaticamente.');
                             } catch (e) {
                                 try {
                                     checkbox.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
@@ -617,7 +616,105 @@
             calcularTempoDescansoMs: calcularTempoDescansoMs
         };
     })();
-    /* =====================================================================
+/* =====================================================================
+     * ANTI-TELEMETRIA & DISCRIÇÃO TOTAL
+     * ---------------------------------------------------------------------
+     * Minimiza o que sai do navegador:
+     * 1. Bloqueia trackers de terceiros (analytics, anúncios, gravação de
+     *    sessão) em XHR, fetch e sendBeacon — nenhum dado da sessão vaza
+     *    para eles; só trafega o essencial do próprio site;
+     * 2. Oculta sinais de automação (navigator.webdriver) — o navegador
+     *    responde como uma sessão humana comum;
+     * 3. Expõe as APIs internas de forma não-enumerável: Object.keys(),
+     *    for-in e ferramentas de extensão não revelam o script.
+     * =================================================================== */
+    var ANTITRACKER_ALVOS = [
+        'google-analytics.com', 'googletagmanager.com', 'analytics.google.com',
+        'googleadservices.com', 'googlesyndication.com', 'doubleclick.net',
+        'googletagmanager', 'amplitude.com', 'cdn.amplitude.com',
+        'mixpanel.com', 'hotjar.com', 'static.hotjar.com', 'sentry.io',
+        'browser.sentry-cdn.com', 'js-agent.newrelic.com', 'bam.nr-data.net',
+        'segment.io', 'segment.com', 'connect.facebook.net',
+        'facebook.com/tr', 'clarity.ms', 'logrocket.com', 'smartlook.com',
+        'mouseflow.com', 'crazyegg.com', 'scorecardresearch.com',
+        'posthog.com', 'inspectlet.com', 'fullstory.com', 'cdn.taboola.com',
+        'outbrain.com', 'mc.yandex.ru', 'yandex.com/metrika',
+        'tiktok.com/analytics', 'hubspot', 'intercom', 'crisp.chat',
+        'freshchat.com', 'userpilot', 'appsflyer.com', 'kochava.com',
+        'branch.io', 'adjust.com', 'chartbeat.com', 'parsely.com',
+        'criteo.com', 'adnxs.com', 'rubiconproject.com', 'openx.net',
+        'pubmatic.com', 'taboola.com', 'amazon-adsystem.com'
+    ];
+
+    function eAlvoTelemetria(url) {
+        try {
+            var u = String(url || '').toLowerCase();
+            if (!/^https?:/i.test(u)) return false;
+            for (var i = 0; i < ANTITRACKER_ALVOS.length; i += 1) {
+                if (u.indexOf(ANTITRACKER_ALVOS[i]) !== -1) return true;
+            }
+            return false;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function bloquearTelemetria() {
+        try {
+            var origOpen = XMLHttpRequest.prototype.open;
+            XMLHttpRequest.prototype.open = function (metodo, url) {
+                try {
+                    if (eAlvoTelemetria(url)) url = 'about:blank';
+                } catch (e) {}
+                return origOpen.apply(this, arguments);
+            };
+        } catch (e) {}
+        try {
+            var origFetch = window.fetch;
+            if (typeof origFetch === 'function') {
+                window.fetch = function (input, init) {
+                    var url = typeof input === 'string' ? input : (input && input.url) || '';
+                    if (eAlvoTelemetria(url)) {
+                        return Promise.reject(new TypeError('bloqueado pela anti-telemetria'));
+                    }
+                    return origFetch.apply(this, arguments);
+                };
+            }
+        } catch (e) {}
+        try {
+            var origBeacon = navigator.sendBeacon;
+            if (typeof origBeacon === 'function') {
+                navigator.sendBeacon = function (url, data) {
+                    if (eAlvoTelemetria(url)) return false;
+                    return origBeacon.call(navigator, url, data);
+                };
+            }
+        } catch (e) {}
+    }
+
+    function mascararFingerprint() {
+        try {
+            Object.defineProperty(navigator, 'webdriver', {
+                get: function () { return undefined; }
+            });
+        } catch (e) {}
+        try {
+            Object.defineProperty(navigator, 'languages', {
+                get: function () { return ['pt-BR', 'pt', 'en-US', 'en']; }
+            });
+        } catch (e) {}
+    }
+
+    function ocultarGlobal(chave, valor) {
+        try {
+            Object.defineProperty(window, chave, {
+                value: valor,
+                enumerable: false,
+                writable: true,
+                configurable: true
+            });
+        } catch (e) {}
+    }    /* =====================================================================
      * DOM HELPERS
      * =================================================================== */
     function clean(value) {
@@ -851,11 +948,6 @@
             if (state.logs.length > LOG_MAX_EVENTOS) state.logs.splice(0, state.logs.length - LOG_MAX_EVENTOS);
         }
         try {
-            if (typeof console !== 'undefined' && console && typeof console.log === 'function') {
-                console.log('[TecFabrica] ' + formatarEventoLog(evento));
-            }
-        } catch (e) { /* logging não pode interromper a coleta */ }
-        try {
             if (typeof UI !== 'undefined' && UI && typeof UI.appendLog === 'function') UI.appendLog(evento);
         } catch (e) { /* hook visual é opcional */ }
         if (options.persist !== false) agendarPersistenciaLog();
@@ -868,6 +960,7 @@
             normalizarContextoLog: normalizarContextoLog,
             formatarEventoLog: formatarEventoLog
         };
+        if (typeof ocultarGlobal === 'function') ocultarGlobal('__TecFabricaLog', window.__TecFabricaLog);
     }
     /* =====================================================================
      * PLANO (aceita o JSON do usuário e o formato Markdown consolidado)
@@ -1507,7 +1600,6 @@
                     legado = parseLegadoV1(rec.json);
                     if (!legado) {
                         migrationFailed = true;
-                        console.warn('[TecFabrica] legado v1 inválido; preservado.');
                         resolve({ failed: true, reason: 'legado v1 inválido' }); return;
                     }
                     salvarSnapshot(legado).then(function () {
@@ -1515,9 +1607,8 @@
                             t.objectStore(IDB_META_STORE).put({ key: 'legacy-v1-archive', schema: 2, archivedAt: Date.now(), json: rec.json });
                             t.objectStore(IDB_LEGACY_STORE).delete(CONFIG.storageKey);
                         });
-                    }).then(function () { console.log('[TecFabrica] estado v1 migrado para v2.'); resolve(legado); }).catch(function (e) {
+                    }).then(function () { resolve(legado); }).catch(function (e) {
                         migrationFailed = true;
-                        console.warn('[TecFabrica] migração v1 falhou; legado preservado.', e);
                         resolve({ failed: true, reason: 'falha na migração v1' });
                     });
                 };
@@ -1547,8 +1638,7 @@
         });
         saveChain = transacao.then(function () {
             return true;
-        }, function (e) {
-            console.warn('[TecFabrica] aviso: falha ao salvar no IndexedDB (' + (e && e.name || e) + ').');
+        }, function () {
             return false;
         });
         return transacao;
@@ -1577,7 +1667,6 @@
             estado.status = 'erro';
             estado.erro = e && e.message || String(e);
             estado.mensagem = 'Falha ao carregar o estado; dados legados foram preservados.';
-            console.warn('[TecFabrica] AVISO: IndexedDB indisponível ou falhou a leitura — estado em memória preservado (' + (e && e.message || e) + ').');
             indexarEstado(estado); return estado;
         });
     }
@@ -1621,6 +1710,7 @@
             parseLegadoV1: parseLegadoV1
             ,criarDebounce: criarDebounce
         };
+        if (typeof ocultarGlobal === 'function') ocultarGlobal('__TecFabricaPersistence', window.__TecFabricaPersistence);
     }
     /* =====================================================================
      * PÁGINAS / NAVEGAÇÃO
@@ -2181,8 +2271,8 @@
                     return;
                 }
             }
-            // 3. Clique para resolver (fallback — opcional, desligável na Config)
-            if (estado.config && estado.config.usarCliqueGabarito === false) {
+            // 3. Clique para resolver (fallback — opt-in explícito na Config)
+            if (estado.config && estado.config.usarCliqueGabarito !== true) {
                 GabaritoInterceptor.estatisticas.semGabarito += 1;
                 GabaritoInterceptor.ultimoMetodo = 'clique-desativado';
                 log('Decisão: clique de resolução está desativado na configuração.', {
@@ -3642,6 +3732,7 @@
         log: log,
         GabaritoInterceptor: GabaritoInterceptor
     };
+    if (typeof ocultarGlobal === 'function') ocultarGlobal('__TecFabrica', window.__TecFabrica);
 
     /* =====================================================================
      * EXPORTAÇÃO — réplica fiel dos templates do projeto "Tecconcursos"
@@ -4396,6 +4487,7 @@
     // `window` existe e `module` não — o guard não altera o comportamento.
     if (typeof window !== 'undefined') {
         window.__TecFabricaExport = __TecFabricaExport;
+        if (typeof ocultarGlobal === 'function') ocultarGlobal('__TecFabricaExport', window.__TecFabricaExport);
     } else if (typeof module !== 'undefined' && module.exports) {
         module.exports = __TecFabricaExport;
     }
@@ -4695,6 +4787,7 @@
             '</div>' +
             '<div class="tf-corpo" id="tf-corpo"></div>';
         document.body.appendChild(painelEl);
+        painelEl.style.display = 'none';
 
         painelEl.querySelectorAll('.tf-aba').forEach(function (b) {
             b.addEventListener('click', function () { mostrarAba(b.getAttribute('data-aba')); });
@@ -4709,6 +4802,11 @@
         });
 
         mostrarAba('plano');
+    }
+
+    function alternarPainel() {
+        if (!painelEl) return;
+        painelEl.style.display = painelEl.style.display === 'none' ? '' : 'none';
     }
 
     function mostrarAba(aba) {
@@ -4803,7 +4901,7 @@
             '<div class="tf-linha"><input type="checkbox" id="tf-auto" ' + (c.autoContinuarLote ? 'checked' : '') + '><label>Continuar lotes automaticamente</label></div>' +
             '<div class="tf-linha"><input type="checkbox" id="tf-anuladas" ' + ((c.removeCancelled !== false) ? 'checked' : '') + '><label>Remover questões anuladas</label></div>' +
             '<div class="tf-linha"><input type="checkbox" id="tf-desatualizadas" ' + ((c.removeOutdated !== false) ? 'checked' : '') + '><label>Remover questões desatualizadas</label></div>' +
-            '<div class="tf-linha"><input type="checkbox" id="tf-clique-gabarito" ' + ((c.usarCliqueGabarito !== false) ? 'checked' : '') + '><label>Clique para obter gabarito (apenas no modo Com Gabarito)</label></div>' +
+            '<div class="tf-linha"><input type="checkbox" id="tf-clique-gabarito" ' + ((c.usarCliqueGabarito === true) ? 'checked' : '') + '><label>Clique para obter gabarito (apenas no modo Com Gabarito)</label></div>' +
             '<div class="tf-secao-titulo">Bancas (uma por linha)</div>' +
             '<textarea id="tf-bancas" style="min-height:80px">' + (c.banks || CONFIG.banks).join('\n') + '</textarea>' +
             '<div class="tf-secao-titulo">Anos (separados por vírgula)</div>' +
@@ -4960,6 +5058,12 @@
                         modoCriacao: CONFIG.modoCriacao,
                         removeCancelled: CONFIG.removeCancelled,
                         removeOutdated: CONFIG.removeOutdated,
+                        usarCliqueGabarito: CONFIG.usarCliqueGabarito,
+                        modoOperacao: CONFIG.modoOperacao,
+                        modoColeta: CONFIG.modoColeta,
+                        perfilStealth: CONFIG.perfilStealth,
+                        stealthWpm: CONFIG.stealthWpm,
+                        stealthCoffeeBreakAtivo: CONFIG.stealthCoffeeBreakAtivo,
                         banks: CONFIG.banks.slice(),
                         years: CONFIG.years.slice()
                     };
@@ -5236,12 +5340,30 @@
             renderEventos: renderEventosLog,
             textoCompleto: textoCompletoLog
         };
+        if (typeof ocultarGlobal === 'function') ocultarGlobal('__TecFabricaLogUI', window.__TecFabricaLogUI);
     }
 
-    /* =====================================================================
+/* =====================================================================
      * INICIALIZAÇÃO
      * =================================================================== */
     var autoResumeTimer = null;
+
+    // Discreção antes de qualquer outra coisa: bloqueia trackers de terceiros
+    // e oculta sinais de automação do navegador.
+    if (typeof bloquearTelemetria === 'function') bloquearTelemetria();
+    if (typeof mascararFingerprint === 'function') mascararFingerprint();
+
+    function instalarAtalhoPainel() {
+        try {
+            document.addEventListener('keydown', function (e) {
+                if (e.altKey && e.shiftKey && e.code === 'KeyF') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (typeof alternarPainel === 'function') alternarPainel();
+                }
+            });
+        } catch (e) {}
+    }
 
     function cancelarAutoResumir() {
         if (autoResumeTimer === null) return;
@@ -5272,6 +5394,7 @@
             contexto: { temPlano: !!estado.plano, materias: estado.plano ? estado.plano.matters.length : 0, status: estado.status }
         });
         criarUI();
+        instalarAtalhoPainel();
         if (estado.plano) {
             UI.setStatus(estado.plano.matters.length + ' matérias carregadas' + (estado.status === 'pausado' ? ' — retome de onde parou' : ''));
         } else {
@@ -5350,6 +5473,7 @@
     });
 
     window.__TecFabricaUI = UI;
+    if (typeof ocultarGlobal === 'function') ocultarGlobal('__TecFabricaUI', window.__TecFabricaUI);
 /* ==== DIAGNÓSTICO INJETADO (início) ==== */
 /*
  * Instrumentação de diagnóstico — NUNCA faz parte do build limpo (dist/).

@@ -10,4 +10,5 @@
         log: log,
         GabaritoInterceptor: GabaritoInterceptor
     };
+    if (typeof ocultarGlobal === 'function') ocultarGlobal('__TecFabrica', window.__TecFabrica);
 

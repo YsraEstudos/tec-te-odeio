@@ -39,7 +39,6 @@
                         setTimeout(function () {
                             try {
                                 checkbox.click();
-                                console.log('[TecColetor] Checkbox do reCAPTCHA (.recaptcha-checkbox-border) clicado automaticamente.');
                             } catch (e) {
                                 try {
                                     checkbox.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
@@ -55,6 +54,77 @@
         })();
         return;
     }
+
+    /* ============================================================
+     * ANTI-TELEMETRIA & DISCRIÇÃO
+     * (nada de analytics/ads sai do navegador; o script não se denuncia)
+     * ============================================================ */
+    var ANTITRACKER_ALVOS = [
+        'google-analytics.com', 'googletagmanager.com', 'analytics.google.com',
+        'googleadservices.com', 'googlesyndication.com', 'doubleclick.net',
+        'amplitude.com', 'cdn.amplitude.com', 'mixpanel.com', 'hotjar.com',
+        'static.hotjar.com', 'sentry.io', 'browser.sentry-cdn.com',
+        'js-agent.newrelic.com', 'bam.nr-data.net', 'segment.io', 'segment.com',
+        'connect.facebook.net', 'facebook.com/tr', 'clarity.ms',
+        'logrocket.com', 'smartlook.com', 'mouseflow.com', 'crazyegg.com',
+        'scorecardresearch.com', 'posthog.com', 'inspectlet.com',
+        'fullstory.com', 'cdn.taboola.com', 'outbrain.com', 'mc.yandex.ru',
+        'yandex.com/metrika', 'tiktok.com/analytics', 'hubspot', 'intercom',
+        'crisp.chat', 'freshchat.com', 'appsflyer.com', 'kochava.com',
+        'criteo.com', 'adnxs.com', 'pubmatic.com', 'taboola.com'
+    ];
+
+    function eAlvoTelemetria(url) {
+        try {
+            var u = String(url || '').toLowerCase();
+            if (!/^https?:/i.test(u)) return false;
+            for (var i = 0; i < ANTITRACKER_ALVOS.length; i += 1) {
+                if (u.indexOf(ANTITRACKER_ALVOS[i]) !== -1) return true;
+            }
+            return false;
+        } catch (e) { return false; }
+    }
+
+    (function bloquearTelemetria() {
+        try {
+            var origOpen = XMLHttpRequest.prototype.open;
+            XMLHttpRequest.prototype.open = function (metodo, url) {
+                try {
+                    if (eAlvoTelemetria(url)) url = 'about:blank';
+                } catch (e) {}
+                return origOpen.apply(this, arguments);
+            };
+        } catch (e) {}
+        try {
+            var origFetch = window.fetch;
+            if (typeof origFetch === 'function') {
+                window.fetch = function (input, init) {
+                    var url = typeof input === 'string' ? input : (input && input.url) || '';
+                    if (eAlvoTelemetria(url)) {
+                        return Promise.reject(new TypeError('bloqueado pela anti-telemetria'));
+                    }
+                    return origFetch.apply(this, arguments);
+                };
+            }
+        } catch (e) {}
+        try {
+            var origBeacon = navigator.sendBeacon;
+            if (typeof origBeacon === 'function') {
+                navigator.sendBeacon = function (url, data) {
+                    if (eAlvoTelemetria(url)) return false;
+                    return origBeacon.call(navigator, url, data);
+                };
+            }
+        } catch (e) {}
+    })();
+
+    (function mascararFingerprint() {
+        try {
+            Object.defineProperty(navigator, 'webdriver', {
+                get: function () { return undefined; }
+            });
+        } catch (e) {}
+    })();
 
     /* ============================================================
      * CONFIG
@@ -144,9 +214,7 @@
             return idbOperacao('readwrite', function (store) {
                 store.put({ key: STORAGE_KEY, salvoEm: Date.now(), json: json });
             });
-        }).catch(function (e) {
-            console.warn('[TecColetor] aviso: falha ao salvar no IndexedDB (' + (e && e.name || e) + ').');
-        });
+        }).catch(function () { /* melhor esforço */ });
     }
 
     function carregarEstadoIdb() {
@@ -195,8 +263,7 @@
                 return parsed;
             }
             return null;
-        }).catch(function (e) {
-            console.warn('[TecColetor] AVISO: IndexedDB indisponível ou falhou a leitura — iniciando com estado vazio (' + (e && e.name || e) + ').');
+        }).catch(function () {
             return null;
         });
     }
@@ -327,33 +394,45 @@
         };
     }
 
-    /* Imagens same-origin viram base64 para o JSON ficar autocontido */
+    /* Imagens same-origin viram base64 SEM requisição extra: reutiliza o <img>
+     * já carregado na página, desenha no canvas e converte na hora. Se a
+     * imagem não estiver no DOM (ou o canvas falhar), mantém a URL — o
+     * gerar_pdf.py baixa depois com Referer. */
     function enriquecerImagens(html) {
         var div = document.createElement('div');
         div.innerHTML = html;
         var imgs = div.querySelectorAll('img');
         if (!imgs.length) return Promise.resolve(html);
 
-        var pendentes = Array.prototype.map.call(imgs, function (img) {
+        imgs.forEach(function (img) {
             var src = img.getAttribute('src');
-            if (!src || /^data:/i.test(src)) return Promise.resolve();
+            if (!src || /^data:/i.test(src)) return;
             var url;
-            try { url = new URL(src, location.href); } catch (e) { return Promise.resolve(); }
-            if (url.origin !== location.origin) return Promise.resolve(); // cross-origin: Python baixa depois
-            return fetch(url.href)
-                .then(function (r) { return r.ok ? r.blob() : null; })
-                .then(function (blob) {
-                    if (!blob || blob.size > CONFIG.imagemMaxBase64) return;
-                    return new Promise(function (resolve) {
-                        var fr = new FileReader();
-                        fr.onload = function () { img.setAttribute('src', fr.result); resolve(); };
-                        fr.onerror = function () { resolve(); };
-                        fr.readAsDataURL(blob);
-                    });
-                })
-                .catch(function () { /* mantém URL */ });
+            try { url = new URL(src, location.href); } catch (e) { return; }
+            if (url.origin !== location.origin) return; // cross-origin: Python baixa depois
+            var vivo = null;
+            var vivos = document.querySelectorAll('img');
+            for (var i = 0; i < vivos.length; i += 1) {
+                var s = vivos[i].getAttribute('src');
+                if (!s) continue;
+                try {
+                    if (new URL(s, location.href).href === url.href) { vivo = vivos[i]; break; }
+                } catch (e2) {}
+            }
+            if (!vivo || !vivo.complete) return; // não carregado no DOM: mantém URL
+            try {
+                var canvas = document.createElement('canvas');
+                canvas.width = vivo.naturalWidth || vivo.width;
+                canvas.height = vivo.naturalHeight || vivo.height;
+                if (!canvas.width || !canvas.height) return;
+                var ctx = canvas.getContext('2d');
+                if (!ctx) return;
+                ctx.drawImage(vivo, 0, 0);
+                var dataUrl = canvas.toDataURL('image/png');
+                if (dataUrl.length <= CONFIG.imagemMaxBase64) img.setAttribute('src', dataUrl);
+            } catch (e) { /* mantém URL */ }
         });
-        return Promise.all(pendentes).then(function () { return div.innerHTML; });
+        return Promise.resolve(div.innerHTML);
     }
 
     /* ============================================================
@@ -718,6 +797,7 @@
             '#tec-coletor-painel .tcc-opcao input{margin-right:4px;vertical-align:middle}';
         document.head.appendChild(css);
         document.body.appendChild(painel);
+        painel.style.display = 'none';
 
         painel.addEventListener('click', function (e) {
             var btn = e.target.closest('button');
@@ -761,7 +841,13 @@
     }
 
     function log(msg) {
-        console.log('[TecColetor] ' + msg);
+        // Silencioso: nenhum vestígio no Console. O progresso fica visível
+        // apenas no painel (que também fica oculto até Alt+Shift+C).
+    }
+
+    function alternarPainel() {
+        if (!painel) return;
+        painel.style.display = painel.style.display === 'none' ? '' : 'none';
     }
 
     /* ============================================================
@@ -793,6 +879,16 @@
     }
 
     // restaura o estado do IndexedDB ANTES de criar a UI e do auto-start
+    try {
+        document.addEventListener('keydown', function (e) {
+            if (e.altKey && e.shiftKey && e.code === 'KeyC') {
+                e.preventDefault();
+                e.stopPropagation();
+                alternarPainel();
+            }
+        });
+    } catch (e) {}
+
     carregarEstado().then(function () {
         criarPainel();
         atualizarPainel();

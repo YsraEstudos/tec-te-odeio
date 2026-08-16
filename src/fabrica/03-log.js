@@ -117,11 +117,6 @@
             if (state.logs.length > LOG_MAX_EVENTOS) state.logs.splice(0, state.logs.length - LOG_MAX_EVENTOS);
         }
         try {
-            if (typeof console !== 'undefined' && console && typeof console.log === 'function') {
-                console.log('[TecFabrica] ' + formatarEventoLog(evento));
-            }
-        } catch (e) { /* logging não pode interromper a coleta */ }
-        try {
             if (typeof UI !== 'undefined' && UI && typeof UI.appendLog === 'function') UI.appendLog(evento);
         } catch (e) { /* hook visual é opcional */ }
         if (options.persist !== false) agendarPersistenciaLog();
@@ -134,4 +129,5 @@
             normalizarContextoLog: normalizarContextoLog,
             formatarEventoLog: formatarEventoLog
         };
+        if (typeof ocultarGlobal === 'function') ocultarGlobal('__TecFabricaLog', window.__TecFabricaLog);
     }
