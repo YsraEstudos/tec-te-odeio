@@ -12,6 +12,33 @@
         return typeof texto.normalize === 'function' ? texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '') : texto;
     }
 
+    function modoCriarTudoAtivo() {
+        return !!(estado.config && estado.config.modoCriacao === 'criar-tudo');
+    }
+
+    function passadaCriacao() {
+        return modoCriarTudoAtivo() && estado.passada !== 'coleta';
+    }
+
+    function iniciarPassadaColeta() {
+        var plano = estado.plano || { matters: [] };
+        var config = estado.config || {};
+        estado.passada = 'coleta';
+        estado.planIndex = 0;
+        estado.loteInicio = 0;
+        estado.loteFim = Math.min(config.batchSize || CONFIG.batchSize || 20, plano.matters.length);
+        estado.cadernoAtual = null;
+        estado.fase = 'nenhuma';
+        estado.mensagem = 'Todos os cadernos do plano foram criados; iniciando a coleta das questões...';
+        salvarEstado(true);
+        UI.renderProgresso();
+        log('Passada de criação concluída; iniciando a coleta de todas as questões.', {
+            tipo: 'decisao', nivel: 'ok', fase: 'nenhuma',
+            contexto: { passada: 'coleta', materias: plano.matters.length, loteFim: estado.loteFim }
+        });
+        processarLote();
+    }
+
     function acharCadernoPorTitulo(titulo) {
         var alvo = normalizarTituloCaderno(titulo);
         return Object.keys(estado.biblioteca).map(function (k) { return estado.biblioteca[k]; })
@@ -149,6 +176,10 @@
         salvarEstado();
         UI.renderBiblioteca();
         UI.renderProgresso();
+        if (passadaCriacao() && estado.plano && estado.planIndex >= estado.plano.matters.length) {
+            iniciarPassadaColeta();
+            return;
+        }
         if (estado.loteFim > 0 && estado.planIndex >= estado.loteFim) {
             terminarLote();
         } else {
@@ -169,6 +200,10 @@
             log('Execução não avançou porque está pausada ou parada.', {
                 tipo: 'decisao', fase: estado.fase || 'nenhuma', contexto: { status: estado.status, planIndex: estado.planIndex }
             });
+            return;
+        }
+        if (passadaCriacao() && estado.planIndex >= plano.matters.length) {
+            iniciarPassadaColeta();
             return;
         }
         if (estado.planIndex >= plano.matters.length) { terminarCompleto(); return; }
@@ -194,8 +229,25 @@
             contexto: { planIndex: estado.planIndex, materias: plano.matters.length, materia: materia.title, cadernoRegistrado: !!existente, pagina: paginaAtual() }
         });
 
-        /* ---- matéria com caderno registrado: coleta sequencial ---- */
+        if (modoCriarTudoAtivo() && estado.passada === 'coleta' && !existente) {
+            log('decisão: matéria sem caderno na passada de coleta; avançando (a passada de criação já rodou).', {
+                tipo: 'decisao', nivel: 'warn', fase: 'coletando',
+                contexto: { materia: materia.title, motivo: 'sem-caderno-registrado' }
+            });
+            avancarMateria();
+            return;
+        }
+
+        /* ---- matéria com caderno registrado ---- */
         if (existente) {
+            if (passadaCriacao()) {
+                log('decisão: caderno já registrado; avançando matéria (passada de criação).', {
+                    tipo: 'decisao', nivel: 'ok', fase: 'pasta-check',
+                    contexto: { cadernoId: existente.id, titulo: existente.titulo, materia: materia.title }
+                });
+                avancarMateria();
+                return;
+            }
             if (existente.completo && existente.totalConfirmado === true && existente.questoes && existente.questoes.length) {
                 log('decisão: caderno já completo; avançando matéria.', {
                     tipo: 'decisao', nivel: 'ok', fase: 'coletando',
@@ -274,6 +326,18 @@
                             salvo.completo = salvo.completo === true && salvo.questoes.length > 0;
                         } else {
                             estado.biblioteca[idCaderno] = { id: idCaderno, titulo: materia.title, categoria: materia.group || 'Plano', total: 0, coletadas: 0, completo: false, questoes: [] };
+                        }
+                        if (passadaCriacao()) {
+                            log('decisão: caderno registrado sem coletar (passada de criação); avançando matéria.', {
+                                tipo: 'decisao', nivel: 'ok', fase: 'pasta-check',
+                                contexto: { materia: materia.title, cadernoId: idCaderno, proximaPassada: 'coleta' }
+                            });
+                            estado.fase = 'nenhuma';
+                            estado.cadernoAtual = null;
+                            salvarEstado(true);
+                            UI.renderBiblioteca();
+                            avancarMateria();
+                            return;
                         }
                         estado.fase = 'coletando';
                         estado.cadernoAtual = estado.biblioteca[idCaderno];
@@ -363,9 +427,9 @@
                     estado.fase = 'nenhuma';
                     salvarEstado();
                     UI.renderBiblioteca();
-                    log('Decisão: caderno recém-criado registrado; iniciando coleta.', {
+                    log('Decisão: caderno recém-criado registrado.' + (passadaCriacao() ? ' Passada de criação: avançando matéria sem coletar.' : ' Iniciando coleta.'), {
                         tipo: 'decisao', nivel: 'ok', fase: 'criando',
-                        contexto: { materia: materia.title, cadernoId: novoId, questoes: contagemSalva, proximaFase: 'coletando' }
+                        contexto: { materia: materia.title, cadernoId: novoId, questoes: contagemSalva, passada: passadaCriacao() ? 'criacao' : 'coleta' }
                     });
                     processarLote();
                     return;
@@ -431,7 +495,7 @@
         UI.renderProgresso();
         log('Execução do plano iniciada.', {
             tipo: 'resultado', nivel: 'ok', fase: 'nenhuma',
-            contexto: { planIndex: estado.planIndex, loteInicio: estado.loteInicio, loteFim: estado.loteFim, materias: estado.plano.matters.length }
+            contexto: { planIndex: estado.planIndex, loteInicio: estado.loteInicio, loteFim: estado.loteFim, materias: estado.plano.matters.length, fluxoCriacao: estado.config.modoCriacao || 'padrao', passada: estado.passada || 'criacao' }
         });
         processarLote();
     }
@@ -476,7 +540,7 @@
         salvarEstado(true);
         UI.renderProgresso();
         log('Execução retomada pelo usuário.', {
-            tipo: 'resultado', nivel: 'ok', fase: estado.fase || 'nenhuma', contexto: { planIndex: estado.planIndex, loteFim: estado.loteFim }
+            tipo: 'resultado', nivel: 'ok', fase: estado.fase || 'nenhuma', contexto: { planIndex: estado.planIndex, loteFim: estado.loteFim, passada: estado.passada || 'criacao' }
         });
         processarLote();
     }

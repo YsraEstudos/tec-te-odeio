@@ -93,6 +93,7 @@
         batchSize: 20,
         coletarAposCriar: true,
         autoContinuarLote: false,
+        modoCriacao: 'padrao', // 'padrao' | 'criar-tudo' (cria todos os cadernos antes de coletar)
         banks: ['FCC', 'Fundatec', 'Vunesp', 'Cesgranrio', 'FGV', 'Legalle', 'Fundação La Salle', 'Instituto AOCP', 'Objetiva',
             'CEBRASPE', 'IBFC', 'Instituto Consulplan', 'QUADRIX', 'IDECAN', 'FEPESE', 'FAURGS'],
         years: [2023, 2020, 2022, 2018, 2025, 2021, 2017, 2024, 2019, 2026, 2016],
@@ -1260,6 +1261,7 @@
     function estadoVazio() {
         return {
             plano: null, planoTexto: '', config: null, status: 'parado', fase: 'nenhuma', modo: 'lote',
+            passada: 'criacao',
             planIndex: 0, loteInicio: 0, loteFim: 0, cadernoAtual: null,
             biblioteca: {}, logs: [], controleResolucoesDiarias: { data: null, total: 0 },
             mensagem: '', erro: null, retomada: false, atualizadoEm: null
@@ -1284,6 +1286,12 @@
             if (!valor.config.perfilStealth) valor.config.perfilStealth = 'ultra-furtivo';
             if (typeof valor.config.stealthWpm !== 'number' || valor.config.stealthWpm < 50) valor.config.stealthWpm = 220;
             if (typeof valor.config.stealthCoffeeBreakAtivo !== 'boolean') valor.config.stealthCoffeeBreakAtivo = true;
+        }
+        if (valor.config.modoCriacao !== 'criar-tudo') {
+            valor.config.modoCriacao = 'padrao';
+        }
+        if (valor.passada !== 'coleta') {
+            valor.passada = 'criacao';
         }
         if (typeof normalizarControleResolucoesDiarias === 'function') {
             normalizarControleResolucoesDiarias(valor);
@@ -3036,6 +3044,33 @@
         return typeof texto.normalize === 'function' ? texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '') : texto;
     }
 
+    function modoCriarTudoAtivo() {
+        return !!(estado.config && estado.config.modoCriacao === 'criar-tudo');
+    }
+
+    function passadaCriacao() {
+        return modoCriarTudoAtivo() && estado.passada !== 'coleta';
+    }
+
+    function iniciarPassadaColeta() {
+        var plano = estado.plano || { matters: [] };
+        var config = estado.config || {};
+        estado.passada = 'coleta';
+        estado.planIndex = 0;
+        estado.loteInicio = 0;
+        estado.loteFim = Math.min(config.batchSize || CONFIG.batchSize || 20, plano.matters.length);
+        estado.cadernoAtual = null;
+        estado.fase = 'nenhuma';
+        estado.mensagem = 'Todos os cadernos do plano foram criados; iniciando a coleta das questões...';
+        salvarEstado(true);
+        UI.renderProgresso();
+        log('Passada de criação concluída; iniciando a coleta de todas as questões.', {
+            tipo: 'decisao', nivel: 'ok', fase: 'nenhuma',
+            contexto: { passada: 'coleta', materias: plano.matters.length, loteFim: estado.loteFim }
+        });
+        processarLote();
+    }
+
     function acharCadernoPorTitulo(titulo) {
         var alvo = normalizarTituloCaderno(titulo);
         return Object.keys(estado.biblioteca).map(function (k) { return estado.biblioteca[k]; })
@@ -3173,6 +3208,10 @@
         salvarEstado();
         UI.renderBiblioteca();
         UI.renderProgresso();
+        if (passadaCriacao() && estado.plano && estado.planIndex >= estado.plano.matters.length) {
+            iniciarPassadaColeta();
+            return;
+        }
         if (estado.loteFim > 0 && estado.planIndex >= estado.loteFim) {
             terminarLote();
         } else {
@@ -3193,6 +3232,10 @@
             log('Execução não avançou porque está pausada ou parada.', {
                 tipo: 'decisao', fase: estado.fase || 'nenhuma', contexto: { status: estado.status, planIndex: estado.planIndex }
             });
+            return;
+        }
+        if (passadaCriacao() && estado.planIndex >= plano.matters.length) {
+            iniciarPassadaColeta();
             return;
         }
         if (estado.planIndex >= plano.matters.length) { terminarCompleto(); return; }
@@ -3218,8 +3261,25 @@
             contexto: { planIndex: estado.planIndex, materias: plano.matters.length, materia: materia.title, cadernoRegistrado: !!existente, pagina: paginaAtual() }
         });
 
-        /* ---- matéria com caderno registrado: coleta sequencial ---- */
+        if (modoCriarTudoAtivo() && estado.passada === 'coleta' && !existente) {
+            log('decisão: matéria sem caderno na passada de coleta; avançando (a passada de criação já rodou).', {
+                tipo: 'decisao', nivel: 'warn', fase: 'coletando',
+                contexto: { materia: materia.title, motivo: 'sem-caderno-registrado' }
+            });
+            avancarMateria();
+            return;
+        }
+
+        /* ---- matéria com caderno registrado ---- */
         if (existente) {
+            if (passadaCriacao()) {
+                log('decisão: caderno já registrado; avançando matéria (passada de criação).', {
+                    tipo: 'decisao', nivel: 'ok', fase: 'pasta-check',
+                    contexto: { cadernoId: existente.id, titulo: existente.titulo, materia: materia.title }
+                });
+                avancarMateria();
+                return;
+            }
             if (existente.completo && existente.totalConfirmado === true && existente.questoes && existente.questoes.length) {
                 log('decisão: caderno já completo; avançando matéria.', {
                     tipo: 'decisao', nivel: 'ok', fase: 'coletando',
@@ -3298,6 +3358,18 @@
                             salvo.completo = salvo.completo === true && salvo.questoes.length > 0;
                         } else {
                             estado.biblioteca[idCaderno] = { id: idCaderno, titulo: materia.title, categoria: materia.group || 'Plano', total: 0, coletadas: 0, completo: false, questoes: [] };
+                        }
+                        if (passadaCriacao()) {
+                            log('decisão: caderno registrado sem coletar (passada de criação); avançando matéria.', {
+                                tipo: 'decisao', nivel: 'ok', fase: 'pasta-check',
+                                contexto: { materia: materia.title, cadernoId: idCaderno, proximaPassada: 'coleta' }
+                            });
+                            estado.fase = 'nenhuma';
+                            estado.cadernoAtual = null;
+                            salvarEstado(true);
+                            UI.renderBiblioteca();
+                            avancarMateria();
+                            return;
                         }
                         estado.fase = 'coletando';
                         estado.cadernoAtual = estado.biblioteca[idCaderno];
@@ -3387,9 +3459,9 @@
                     estado.fase = 'nenhuma';
                     salvarEstado();
                     UI.renderBiblioteca();
-                    log('Decisão: caderno recém-criado registrado; iniciando coleta.', {
+                    log('Decisão: caderno recém-criado registrado.' + (passadaCriacao() ? ' Passada de criação: avançando matéria sem coletar.' : ' Iniciando coleta.'), {
                         tipo: 'decisao', nivel: 'ok', fase: 'criando',
-                        contexto: { materia: materia.title, cadernoId: novoId, questoes: contagemSalva, proximaFase: 'coletando' }
+                        contexto: { materia: materia.title, cadernoId: novoId, questoes: contagemSalva, passada: passadaCriacao() ? 'criacao' : 'coleta' }
                     });
                     processarLote();
                     return;
@@ -3455,7 +3527,7 @@
         UI.renderProgresso();
         log('Execução do plano iniciada.', {
             tipo: 'resultado', nivel: 'ok', fase: 'nenhuma',
-            contexto: { planIndex: estado.planIndex, loteInicio: estado.loteInicio, loteFim: estado.loteFim, materias: estado.plano.matters.length }
+            contexto: { planIndex: estado.planIndex, loteInicio: estado.loteInicio, loteFim: estado.loteFim, materias: estado.plano.matters.length, fluxoCriacao: estado.config.modoCriacao || 'padrao', passada: estado.passada || 'criacao' }
         });
         processarLote();
     }
@@ -3500,7 +3572,7 @@
         salvarEstado(true);
         UI.renderProgresso();
         log('Execução retomada pelo usuário.', {
-            tipo: 'resultado', nivel: 'ok', fase: estado.fase || 'nenhuma', contexto: { planIndex: estado.planIndex, loteFim: estado.loteFim }
+            tipo: 'resultado', nivel: 'ok', fase: estado.fase || 'nenhuma', contexto: { planIndex: estado.planIndex, loteFim: estado.loteFim, passada: estado.passada || 'criacao' }
         });
         processarLote();
     }
@@ -4648,11 +4720,18 @@
         var c = estado.config || {};
         var modoAtual = c.modoColeta || c.modoOperacao || 'stealth-offline';
         var perfilAtual = c.perfilStealth || 'ultra-furtivo';
+        var modoCriacaoAtual = c.modoCriacao || 'padrao';
         return '<div class="tf-secao-titulo">Pasta de destino</div>' +
             '<div class="tf-linha"><input type="text" id="tf-pasta" placeholder="ID da pasta (ex: 6423024) ou abra a página de filtros dela" value="' + (c.folderId || pastaIdDaUrl()) + '"></div>' +
             '<div class="tf-secao-titulo">Lote e ritmo</div>' +
             '<div class="tf-linha"><label style="width:130px">Matérias por lote</label><input type="number" id="tf-lote" min="1" value="' + (c.batchSize || CONFIG.batchSize) + '"></div>' +
             '<div class="tf-linha"><label style="width:130px">Pausa entre ações (s)</label><input type="text" id="tf-delay" value="' + (c.delayMin || CONFIG.delayMin) / 1000 + '-' + (c.delayMax || CONFIG.delayMax) / 1000 + '" placeholder="3-6"></div>' +
+            '<div class="tf-secao-titulo">Fluxo de execução</div>' +
+            '<div class="tf-linha"><select id="tf-modo-criacao">' +
+            '<option value="padrao"' + (modoCriacaoAtual === 'padrao' ? ' selected' : '') + '>Padrão — cria e coleta matéria por matéria</option>' +
+            '<option value="criar-tudo"' + (modoCriacaoAtual === 'criar-tudo' ? ' selected' : '') + '>Criar todos os cadernos primeiro, depois coletar as questões</option>' +
+            '</select></div>' +
+            '<div class="tf-resumo">No modo "Criar tudo primeiro", a execução passa duas vezes pelo plano: na 1ª passada cria todos os cadernos (sem coletar); na 2ª passada coleta as questões de todos os cadernos.</div>' +
             '<div class="tf-secao-titulo">Modo de Operação e Coleta</div>' +
             '<div class="tf-linha"><select id="tf-modo-coleta">' +
             '<option value="stealth-offline"' + (modoAtual === 'stealth-offline' ? ' selected' : '') + '>🛡️ Coleta Furtiva Offline (Sem Resolução / Gabarito Passivo)</option>' +
@@ -4702,7 +4781,10 @@
         var msg = estado.mensagem ? '<div class="tf-status-msg">' + escapeHtml(estado.mensagem) + '</div>' : '';
         var rodando = estado.status === 'rodando';
         var modoLabel = (c && (c.modoOperacao === 'stealth-offline' || c.modoColeta === 'stealth-offline')) ? '🛡️ Modo Furtivo Offline' : ((c && c.modoColeta === 'sem-gabarito-manual') ? '🖐️ Manual Offline' : '✍️ Com Resolução');
-        return '<div class="tf-status-msg" id="tf-msg">' + escapeHtml(faseTxt) + (estado.cadernoAtual ? ' · ' + escapeHtml(estado.cadernoAtual.titulo) : '') + ' · <small>' + modoLabel + '</small></div>' + msg + msgErro +
+        var passadaLabel = (c && c.modoCriacao === 'criar-tudo')
+            ? (estado.passada === 'coleta' ? '🔄 Passada 2/2 · coletando questões' : '🛠️ Passada 1/2 · criando cadernos')
+            : '';
+        return '<div class="tf-status-msg" id="tf-msg">' + escapeHtml(faseTxt) + (estado.cadernoAtual ? ' · ' + escapeHtml(estado.cadernoAtual.titulo) : '') + ' · <small>' + modoLabel + (passadaLabel ? ' · ' + passadaLabel : '') + '</small></div>' + msg + msgErro +
             '<div class="tf-status-msg" id="tf-limite-diario">Resoluções hoje: ' + diario.usadas + '/' + diario.limite + ' · Restam ' + diario.restantes + '</div>' +
             '<div class="tf-secao-titulo">Progresso do plano</div>' +
             '<div class="tf-bar"><div style="width:' + pct + '%"></div></div>' +
@@ -4821,6 +4903,7 @@
                         delayMax: CONFIG.delayMax,
                         coletarAposCriar: CONFIG.coletarAposCriar,
                         autoContinuarLote: CONFIG.autoContinuarLote,
+                        modoCriacao: CONFIG.modoCriacao,
                         removeCancelled: CONFIG.removeCancelled,
                         removeOutdated: CONFIG.removeOutdated,
                         banks: CONFIG.banks.slice(),
@@ -4855,6 +4938,10 @@
                 var modoVal = corpo.querySelector('#tf-modo-coleta').value;
                 cfg.modoColeta = (modoVal === 'sem-gabarito-manual' || modoVal === 'stealth-offline') ? modoVal : 'com-gabarito';
                 cfg.modoOperacao = cfg.modoColeta;
+                var modoCriacaoEl = corpo.querySelector('#tf-modo-criacao');
+                if (modoCriacaoEl) {
+                    cfg.modoCriacao = (modoCriacaoEl.value === 'criar-tudo') ? 'criar-tudo' : 'padrao';
+                }
                 var perfilEl = corpo.querySelector('#tf-perfil-stealth');
                 if (perfilEl) {
                     cfg.perfilStealth = perfilEl.value;
@@ -4871,7 +4958,7 @@
                 estado.config = cfg;
                 salvarEstado();
                 aviso.innerHTML = '<div class="tf-resumo" style="border-color:#166534;background:#052e16;color:#bbf7d0">Configuração salva</div>';
-                log('Configuração salva: pasta ' + (cfg.folderId || '(vazio)') + ', modo ' + cfg.modoColeta + ' (' + (cfg.perfilStealth || 'ultra-furtivo') + '), lote ' + cfg.batchSize + ', ' + cfg.banks.length + ' bancas.');
+                log('Configuração salva: pasta ' + (cfg.folderId || '(vazio)') + ', modo ' + cfg.modoColeta + ' (' + (cfg.perfilStealth || 'ultra-furtivo') + '), fluxo ' + (cfg.modoCriacao || 'padrao') + ', lote ' + cfg.batchSize + ', ' + cfg.banks.length + ' bancas.');
             } catch (e) {
                 aviso.innerHTML = '<div class="tf-status-msg erro">' + escapeHtml(e.message) + '</div>';
             }

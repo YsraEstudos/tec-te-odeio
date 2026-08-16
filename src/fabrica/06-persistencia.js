@@ -78,6 +78,7 @@
     function estadoVazio() {
         return {
             plano: null, planoTexto: '', config: null, status: 'parado', fase: 'nenhuma', modo: 'lote',
+            passada: 'criacao',
             planIndex: 0, loteInicio: 0, loteFim: 0, cadernoAtual: null,
             biblioteca: {}, logs: [], controleResolucoesDiarias: { data: null, total: 0 },
             mensagem: '', erro: null, retomada: false, atualizadoEm: null
@@ -102,6 +103,12 @@
             if (!valor.config.perfilStealth) valor.config.perfilStealth = 'ultra-furtivo';
             if (typeof valor.config.stealthWpm !== 'number' || valor.config.stealthWpm < 50) valor.config.stealthWpm = 220;
             if (typeof valor.config.stealthCoffeeBreakAtivo !== 'boolean') valor.config.stealthCoffeeBreakAtivo = true;
+        }
+        if (valor.config.modoCriacao !== 'criar-tudo') {
+            valor.config.modoCriacao = 'padrao';
+        }
+        if (valor.passada !== 'coleta') {
+            valor.passada = 'criacao';
         }
         if (typeof normalizarControleResolucoesDiarias === 'function') {
             normalizarControleResolucoesDiarias(valor);

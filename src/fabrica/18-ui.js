@@ -213,11 +213,18 @@
         var c = estado.config || {};
         var modoAtual = c.modoColeta || c.modoOperacao || 'stealth-offline';
         var perfilAtual = c.perfilStealth || 'ultra-furtivo';
+        var modoCriacaoAtual = c.modoCriacao || 'padrao';
         return '<div class="tf-secao-titulo">Pasta de destino</div>' +
             '<div class="tf-linha"><input type="text" id="tf-pasta" placeholder="ID da pasta (ex: 6423024) ou abra a página de filtros dela" value="' + (c.folderId || pastaIdDaUrl()) + '"></div>' +
             '<div class="tf-secao-titulo">Lote e ritmo</div>' +
             '<div class="tf-linha"><label style="width:130px">Matérias por lote</label><input type="number" id="tf-lote" min="1" value="' + (c.batchSize || CONFIG.batchSize) + '"></div>' +
             '<div class="tf-linha"><label style="width:130px">Pausa entre ações (s)</label><input type="text" id="tf-delay" value="' + (c.delayMin || CONFIG.delayMin) / 1000 + '-' + (c.delayMax || CONFIG.delayMax) / 1000 + '" placeholder="3-6"></div>' +
+            '<div class="tf-secao-titulo">Fluxo de execução</div>' +
+            '<div class="tf-linha"><select id="tf-modo-criacao">' +
+            '<option value="padrao"' + (modoCriacaoAtual === 'padrao' ? ' selected' : '') + '>Padrão — cria e coleta matéria por matéria</option>' +
+            '<option value="criar-tudo"' + (modoCriacaoAtual === 'criar-tudo' ? ' selected' : '') + '>Criar todos os cadernos primeiro, depois coletar as questões</option>' +
+            '</select></div>' +
+            '<div class="tf-resumo">No modo "Criar tudo primeiro", a execução passa duas vezes pelo plano: na 1ª passada cria todos os cadernos (sem coletar); na 2ª passada coleta as questões de todos os cadernos.</div>' +
             '<div class="tf-secao-titulo">Modo de Operação e Coleta</div>' +
             '<div class="tf-linha"><select id="tf-modo-coleta">' +
             '<option value="stealth-offline"' + (modoAtual === 'stealth-offline' ? ' selected' : '') + '>🛡️ Coleta Furtiva Offline (Sem Resolução / Gabarito Passivo)</option>' +
@@ -267,7 +274,10 @@
         var msg = estado.mensagem ? '<div class="tf-status-msg">' + escapeHtml(estado.mensagem) + '</div>' : '';
         var rodando = estado.status === 'rodando';
         var modoLabel = (c && (c.modoOperacao === 'stealth-offline' || c.modoColeta === 'stealth-offline')) ? '🛡️ Modo Furtivo Offline' : ((c && c.modoColeta === 'sem-gabarito-manual') ? '🖐️ Manual Offline' : '✍️ Com Resolução');
-        return '<div class="tf-status-msg" id="tf-msg">' + escapeHtml(faseTxt) + (estado.cadernoAtual ? ' · ' + escapeHtml(estado.cadernoAtual.titulo) : '') + ' · <small>' + modoLabel + '</small></div>' + msg + msgErro +
+        var passadaLabel = (c && c.modoCriacao === 'criar-tudo')
+            ? (estado.passada === 'coleta' ? '🔄 Passada 2/2 · coletando questões' : '🛠️ Passada 1/2 · criando cadernos')
+            : '';
+        return '<div class="tf-status-msg" id="tf-msg">' + escapeHtml(faseTxt) + (estado.cadernoAtual ? ' · ' + escapeHtml(estado.cadernoAtual.titulo) : '') + ' · <small>' + modoLabel + (passadaLabel ? ' · ' + passadaLabel : '') + '</small></div>' + msg + msgErro +
             '<div class="tf-status-msg" id="tf-limite-diario">Resoluções hoje: ' + diario.usadas + '/' + diario.limite + ' · Restam ' + diario.restantes + '</div>' +
             '<div class="tf-secao-titulo">Progresso do plano</div>' +
             '<div class="tf-bar"><div style="width:' + pct + '%"></div></div>' +
@@ -386,6 +396,7 @@
                         delayMax: CONFIG.delayMax,
                         coletarAposCriar: CONFIG.coletarAposCriar,
                         autoContinuarLote: CONFIG.autoContinuarLote,
+                        modoCriacao: CONFIG.modoCriacao,
                         removeCancelled: CONFIG.removeCancelled,
                         removeOutdated: CONFIG.removeOutdated,
                         banks: CONFIG.banks.slice(),
@@ -420,6 +431,10 @@
                 var modoVal = corpo.querySelector('#tf-modo-coleta').value;
                 cfg.modoColeta = (modoVal === 'sem-gabarito-manual' || modoVal === 'stealth-offline') ? modoVal : 'com-gabarito';
                 cfg.modoOperacao = cfg.modoColeta;
+                var modoCriacaoEl = corpo.querySelector('#tf-modo-criacao');
+                if (modoCriacaoEl) {
+                    cfg.modoCriacao = (modoCriacaoEl.value === 'criar-tudo') ? 'criar-tudo' : 'padrao';
+                }
                 var perfilEl = corpo.querySelector('#tf-perfil-stealth');
                 if (perfilEl) {
                     cfg.perfilStealth = perfilEl.value;
@@ -436,7 +451,7 @@
                 estado.config = cfg;
                 salvarEstado();
                 aviso.innerHTML = '<div class="tf-resumo" style="border-color:#166534;background:#052e16;color:#bbf7d0">Configuração salva</div>';
-                log('Configuração salva: pasta ' + (cfg.folderId || '(vazio)') + ', modo ' + cfg.modoColeta + ' (' + (cfg.perfilStealth || 'ultra-furtivo') + '), lote ' + cfg.batchSize + ', ' + cfg.banks.length + ' bancas.');
+                log('Configuração salva: pasta ' + (cfg.folderId || '(vazio)') + ', modo ' + cfg.modoColeta + ' (' + (cfg.perfilStealth || 'ultra-furtivo') + '), fluxo ' + (cfg.modoCriacao || 'padrao') + ', lote ' + cfg.batchSize + ', ' + cfg.banks.length + ' bancas.');
             } catch (e) {
                 aviso.innerHTML = '<div class="tf-status-msg erro">' + escapeHtml(e.message) + '</div>';
             }
