@@ -23,8 +23,8 @@ test('segunda instância do userscript é bloqueada antes da inicialização', (
   executarCabecalho(contexto);
   executarCabecalho(contexto);
 
-  assert.equal(avisos.length, 1);
+  assert.equal(avisos.length, 0);
   assert.equal(contexto.window.__TecFabricaRuntime.ativo, true);
-  assert.equal(avisos[0][1].existente, '1.1.0');
-  assert.equal(avisos[0][1].atual, '1.1.0');
+  assert.equal(Object.prototype.propertyIsEnumerable.call(contexto.window, '__TecFabricaRuntime'), false);
+  assert.equal(Object.getOwnPropertyDescriptor(contexto.window, '__TecFabricaRuntime').configurable, false);
 });

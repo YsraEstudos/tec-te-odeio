@@ -17,7 +17,7 @@
     "grant": [
       "none"
     ],
-    "runAt": "document-idle"
+    "runAt": "document-start"
   },
   "versionSync": [
     {

@@ -8,7 +8,7 @@
 // @match        https://www.google.com/recaptcha/api2/anchor*
 // @match        https://www.recaptcha.net/recaptcha/api2/anchor*
 // @grant        none
-// @run-at       document-idle
+// @run-at       document-start
 // ==/UserScript==
 
 /* =========================================================================
@@ -79,8 +79,7 @@
     // Isso evita retomadas e navegações enquanto a sessão está inválida.
     if (location.hostname === 'www.tecconcursos.com.br' && !/^\/questoes(?:\/|$)/i.test(location.pathname)) return;
 
-    // Versão do script — espelha @version no cabeçalho do userscript; logada
-    // no Console na inicialização para conferir a cópia em execução.
+    // Versão do script — espelha @version no cabeçalho do userscript.
     var SCRIPT_VERSION = '1.1.0';
 
     // O gerenciador pode manter versões antigas instaladas em paralelo. Sem
@@ -89,16 +88,20 @@
     var TEC_FABRICA_RUNTIME_KEY = '__TecFabricaRuntime';
     var runtimeExistente = window[TEC_FABRICA_RUNTIME_KEY];
     if (runtimeExistente && runtimeExistente.ativo) {
-        try {
-            console.warn('[TecFabrica] Instância ignorada: já existe uma instância ativa.', {
-                existente: runtimeExistente.versao || 'desconhecida',
-                atual: SCRIPT_VERSION
-            });
-        } catch (e) {}
         return;
     }
-    window[TEC_FABRICA_RUNTIME_KEY] = {
+    var runtimeAtual = Object.freeze({
         ativo: true,
         versao: SCRIPT_VERSION,
         iniciadoEm: Date.now()
-    };
+    });
+    try {
+        Object.defineProperty(window, TEC_FABRICA_RUNTIME_KEY, {
+            value: runtimeAtual,
+            enumerable: false,
+            writable: false,
+            configurable: false
+        });
+    } catch (e) {
+        try { window[TEC_FABRICA_RUNTIME_KEY] = runtimeAtual; } catch (e2) {}
+    }
