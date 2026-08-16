@@ -3404,8 +3404,16 @@
         var alvo = normalizarTituloCaderno(titulo);
         var links = Array.from(document.querySelectorAll("a[href*='/questoes/cadernos/']"));
         var correspondentes = links.filter(function (a) {
-                var txt = clean(a.innerText || a.textContent);
-                return normalizarTituloCaderno(txt) === alvo;
+                var linha = typeof a.closest === 'function' ? a.closest('.list-item-caderno') : null;
+                var textos = [
+                    a.getAttribute && a.getAttribute('title'),
+                    a.innerText,
+                    a.textContent,
+                    linha && (linha.innerText || linha.textContent)
+                ].filter(Boolean).map(function (txt) { return normalizarTituloCaderno(clean(txt)); });
+                return textos.some(function (txt) {
+                    return txt === alvo || (txt.length > alvo.length && txt.indexOf(alvo) !== -1);
+                });
             });
         return correspondentes.find(function (a) {
             var linha = typeof a.closest === 'function' ? a.closest('.list-item-caderno') : null;
@@ -3586,8 +3594,8 @@
                     return;
                 }
                 var link = encontrarLinkCadernoNaPasta(materia.title);
-                if (!link) {
-                    await workerSleep(1200);
+                for (var tentativaPasta = 0; !link && tentativaPasta < 4; tentativaPasta += 1) {
+                    await workerSleep(tentativaPasta === 0 ? 1200 : 1000);
                     link = encontrarLinkCadernoNaPasta(materia.title);
                 }
                 if (link) {
@@ -3686,6 +3694,10 @@
                     salvarEstado();
                     UI.setStatus(estado.mensagem);
                     await criarCaderno(materia, config); // clique → navega → próximo boot retoma em 'criando'
+                    // O site pode mudar a rota por SPA sem recarregar o userscript.
+                    // Nesse caso, processa imediatamente a fase 'criando' em vez
+                    // de depender de um novo boot para registrar o caderno.
+                    if (paginaAtual() === 'caderno') processarLote();
                 } catch (e) {
                     estado.status = 'erro';
                     estado.erro = String(e && e.message || e);

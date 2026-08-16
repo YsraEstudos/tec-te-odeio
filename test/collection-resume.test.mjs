@@ -91,6 +91,19 @@ test('linha real do TecConcursos é localizada e clicada pelo item pai', () => {
   assert.equal(clicado, true);
 });
 
+test('pasta reconhece caderno quando o cartão acrescenta metadados ao título', () => {
+  const linha = { offsetParent: null, innerText: 'Classes de palavras · 120 questões' };
+  const link = {
+    href: 'https://www.tecconcursos.com.br/questoes/cadernos/100658768',
+    innerText: 'Classes de palavras · 120 questões',
+    textContent: 'Classes de palavras · 120 questões',
+    offsetParent: null,
+    closest(selector) { return selector === '.list-item-caderno' ? linha : null; },
+  };
+  const helpers = loadFolderHelpers([link]);
+  assert.equal(helpers.encontrarLinkCadernoNaPasta('Classes de palavras'), link);
+});
+
 test('boot recupera pausa legada somente na fase pasta-check', () => {
   assert.match(inicializacaoSource, /estado\.status === 'pausado' && estado\.fase === 'pasta-check'/);
   assert.match(inicializacaoSource, /estado\.pausaManual !== true/);

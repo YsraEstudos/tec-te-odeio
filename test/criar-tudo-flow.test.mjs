@@ -46,6 +46,10 @@ test('orquestrador: caderno recém-criado avança diretamente na passada de cria
   assert.match(orchestratorSource, /if \(deveAvancarSemColetar\) \{\s*avancarMateria\(\);\s*return;/);
 });
 
+test('orquestrador continua quando a criação muda a rota por SPA', () => {
+  assert.match(orchestratorSource, /if \(paginaAtual\(\) === 'caderno'\) processarLote\(\);/);
+});
+
 test('orquestrador: passada de coleta pula matérias sem caderno', () => {
   assert.match(orchestratorSource, /estado\.passada === 'coleta' && !existente/);
   assert.match(orchestratorSource, /a passada de criação já rodou/);
