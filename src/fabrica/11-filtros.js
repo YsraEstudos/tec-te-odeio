@@ -52,17 +52,61 @@
         }
     }
 
+    function itemEhPasta(item) {
+        return !!item && item.classList.contains('arvore-item-pasta');
+    }
+
+    function rotuloItemArvore(item) {
+        var nome = item && item.querySelector('.arvore-item-conteudo .arvore-item-nome');
+        return clean(nome ? nome.textContent : (item && item.innerText));
+    }
+
+    function itemCorresponde(item, texto) {
+        var rotulo = rotuloItemArvore(item);
+        var titulo = item && item.getAttribute('title');
+        return mesmoTexto(rotulo, texto) || mesmoTexto(titulo, texto);
+    }
+
     function itemDaArvore(box, texto) {
-        return visiveis('.arvore-item').find(function (n) {
-            if (box && !box.contains(n)) return false;
-            return mesmoTexto(n.innerText, texto) || mesmoTexto(n.getAttribute('title'), texto);
+        return visiveis('.arvore-item').filter(function (n) {
+            return (!box || box.contains(n)) && itemCorresponde(n, texto);
+        }).sort(function (a, b) {
+            return Number(itemEhPasta(a)) - Number(itemEhPasta(b));
+        })[0] || null;
+    }
+
+    function itemSelecionavelDaPasta(pasta, texto) {
+        var descendentes = visiveis('.arvore-item').filter(function (n) {
+            return n !== pasta && pasta.contains(n);
+        });
+        return descendentes.find(function (n) {
+            return n.classList.contains('arvore-item-selecionar-tudo') &&
+                (clean(n.getAttribute('title')).toLocaleLowerCase('pt-BR').indexOf(clean(texto).toLocaleLowerCase('pt-BR')) >= 0);
+        }) || descendentes.find(function (n) {
+            return !itemEhPasta(n) && itemCorresponde(n, texto);
         }) || null;
+    }
+
+    async function itemSelecionavel(box, texto) {
+        var item = itemDaArvore(box, texto);
+        if (!item || !itemEhPasta(item)) return item;
+
+        if (item.getAttribute('aria-expanded') !== 'true') {
+            (item.querySelector('.arvore-item-conteudo') || item).click();
+        }
+        await esperar(function () {
+            var pastaAtual = itemDaArvore(box, texto) || item;
+            return itemSelecionavelDaPasta(pastaAtual, texto);
+        }, 3500, 'A pasta de filtro "' + texto + '" não abriu.');
+        item = itemDaArvore(box, texto) || item;
+        return itemSelecionavelDaPasta(item, texto) || item;
     }
 
     function itemSelecionado(box, texto) {
         return visiveis('.arvore-item').some(function (n) {
             return box.contains(n) && n.classList.contains('arvore-item-selecionado') &&
-                (mesmoTexto(n.innerText, texto) || mesmoTexto(n.getAttribute('title'), texto));
+                (itemCorresponde(n, texto) || (n.classList.contains('arvore-item-selecionar-tudo') &&
+                    clean(n.getAttribute('title')).toLocaleLowerCase('pt-BR').indexOf(clean(texto).toLocaleLowerCase('pt-BR')) >= 0));
         });
     }
 
@@ -116,8 +160,10 @@
             throw new Error('"' + valor + '" não encontrado no filtro ' + titulo + '.');
         }
         await pausaAleatoria();
+        // Pastas não são selecionáveis: abre a pasta e usa "Todo o conteúdo".
+        item = await itemSelecionavel(box, candidatoAchado);
         // a lista pode ter sido re-renderizada pelo Angular após a busca: re-obtém o nó fresco
-        if (!item.isConnected) item = itemDaArvore(box, candidatoAchado) || item;
+        if (!item || !item.isConnected) item = await itemSelecionavel(box, candidatoAchado) || item;
         (item.querySelector('.arvore-item-conteudo') || item).click();
         try {
             await esperar(function () { return itemSelecionado(box, candidatoAchado); }, 2500, '');
@@ -128,7 +174,7 @@
         } catch (e) {
             // fallback Angular (mesmo do projeto): dispara vm.notificarClick no escopo do item
             await workerSleep(400);
-            if (!item.isConnected) item = itemDaArvore(box, candidatoAchado) || item;
+            if (!item || !item.isConnected) item = await itemSelecionavel(box, candidatoAchado) || item;
             var clickable = item.querySelector('.arvore-item-conteudo') || item;
             var angEl = angular.element(clickable);
             var scope = angEl && ((typeof angEl.isolateScope === 'function' && angEl.isolateScope()) || (typeof angEl.scope === 'function' && angEl.scope()));

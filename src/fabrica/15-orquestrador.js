@@ -20,6 +20,66 @@
         return modoCriarTudoAtivo() && estado.passada !== 'coleta';
     }
 
+    /* ---- cronometria da passada de criação ---- */
+    function cronometriaCriacao() {
+        if (!estado.cronometriaCriacao || typeof estado.cronometriaCriacao !== 'object') {
+            estado.cronometriaCriacao = { amostras: [], atual: null };
+        }
+        return estado.cronometriaCriacao;
+    }
+
+    function marcarInicioCriacao() {
+        if (!passadaCriacao()) return;
+        var cron = cronometriaCriacao();
+        if (cron.atual && Number(cron.atual.planIndex) === estado.planIndex) return;
+        cron.atual = {
+            planIndex: estado.planIndex,
+            inicio: Date.now(),
+            delayMin: CONFIG.delayMin,
+            delayMax: CONFIG.delayMax
+        };
+    }
+
+    function registrarCriacaoConcluida() {
+        var cron = cronometriaCriacao();
+        var atual = cron.atual;
+        cron.atual = null;
+        if (!atual || Number(atual.planIndex) !== estado.planIndex) return;
+        var agora = Date.now();
+        var ms = agora - Number(atual.inicio || agora);
+        if (ms <= 0) return;
+        cron.amostras = cron.amostras || [];
+        cron.amostras.push({
+            ms: ms,
+            delayMin: Number(atual.delayMin) || CONFIG.delayMin,
+            delayMax: Number(atual.delayMax) || CONFIG.delayMax
+        });
+        if (cron.amostras.length > 40) cron.amostras = cron.amostras.slice(-40);
+    }
+
+    function estimarRestanteCriacao() {
+        var plano = estado.plano;
+        var total = plano && Array.isArray(plano.matters) ? plano.matters.length : 0;
+        var restantes = Math.max(0, total - Number(estado.planIndex || 0));
+        var cron = cronometriaCriacao();
+        var amostras = Array.isArray(cron.amostras) ? cron.amostras : [];
+        if (!amostras.length) {
+            return { restantes: restantes, porMateriaMs: 0, totalMs: 0, fator: 1, temAmostras: false };
+        }
+        var somaMs = 0;
+        var somaDelay = 0;
+        amostras.forEach(function (a) {
+            somaMs += Number(a && a.ms) || 0;
+            somaDelay += ((Number(a && a.delayMin) || 0) + (Number(a && a.delayMax) || 0)) / 2;
+        });
+        var mediaMs = somaMs / amostras.length;
+        var mediaDelay = somaDelay / amostras.length;
+        var delayAtual = ((Number(CONFIG.delayMin) || 0) + (Number(CONFIG.delayMax) || 0)) / 2;
+        var fator = mediaDelay > 0 && delayAtual > 0 ? delayAtual / mediaDelay : 1;
+        var porMateriaMs = Math.max(0, mediaMs * fator);
+        return { restantes: restantes, porMateriaMs: porMateriaMs, totalMs: porMateriaMs * restantes, fator: fator, temAmostras: true };
+    }
+
     function iniciarPassadaColeta() {
         var plano = estado.plano || { matters: [] };
         var config = estado.config || {};
@@ -178,6 +238,7 @@
     }
 
     function avancarMateria() {
+        if (passadaCriacao()) registrarCriacaoConcluida();
         estado.planIndex += 1;
         estado.cadernoAtual = null;
         estado.fase = 'nenhuma';
@@ -251,6 +312,8 @@
             return;
         }
         if (estado.planIndex >= plano.matters.length) { terminarCompleto(); return; }
+
+        marcarInicioCriacao();
 
         var materia = plano.matters[estado.planIndex];
         var idCadernoRota = paginaAtual() === 'caderno' ? cadernoIdDaUrl() : '';
@@ -428,6 +491,7 @@
                         log('Decisão: filtros não retornaram questões; pulando matéria.', {
                             tipo: 'decisao', nivel: 'warn', fase: 'filtros', contexto: { materia: materia.title, questoes: 0 }
                         });
+                        if (passadaCriacao()) registrarCriacaoConcluida();
                         estado.planIndex += 1;
                         estado.fase = 'nenhuma';
                         salvarEstado();

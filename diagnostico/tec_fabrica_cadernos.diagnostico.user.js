@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Tec Concursos — Fábrica de Cadernos
 // @namespace    tec-fabrica-cadernos-v2
-// @version      2.0.3
+// @version      2.1.0
 // @description  Cria cadernos em lote a partir de um plano de matérias (com bancas e anos), coleta cada questão com o gabarito oficial e exporta HTML interativo + Excel completos.
 // @author       voce
 // @match        https://www.tecconcursos.com.br/questoes/*
@@ -80,7 +80,7 @@
     if (location.hostname === 'www.tecconcursos.com.br' && !/^\/questoes(?:\/|$)/i.test(location.pathname)) return;
 
     // Versão do script — espelha @version no cabeçalho do userscript.
-    var SCRIPT_VERSION = '2.0.3';
+    var SCRIPT_VERSION = '2.1.0';
 
     // O gerenciador pode manter versões antigas instaladas em paralelo. Sem
     // este bloqueio, duas máquinas de estado clicam no mesmo filtro e uma
@@ -1547,6 +1547,7 @@
             passada: 'criacao',
             planIndex: 0, loteInicio: 0, loteFim: 0, cadernoAtual: null,
             biblioteca: {}, logs: [], controleResolucoesDiarias: { data: null, total: 0 },
+            cronometriaCriacao: { amostras: [], atual: null },
             mensagem: '', erro: null, retomada: false, atualizadoEm: null
         };
     }
@@ -1578,6 +1579,13 @@
         }
         if (typeof normalizarControleResolucoesDiarias === 'function') {
             normalizarControleResolucoesDiarias(valor);
+        }
+        if (!valor.cronometriaCriacao || typeof valor.cronometriaCriacao !== 'object') {
+            valor.cronometriaCriacao = { amostras: [], atual: null };
+        } else {
+            if (!Array.isArray(valor.cronometriaCriacao.amostras)) valor.cronometriaCriacao.amostras = [];
+            if (valor.cronometriaCriacao.amostras.length > 40) valor.cronometriaCriacao.amostras = valor.cronometriaCriacao.amostras.slice(-40);
+            if (valor.cronometriaCriacao.atual && typeof valor.cronometriaCriacao.atual !== 'object') valor.cronometriaCriacao.atual = null;
         }
         if (!Array.isArray(valor.logs)) valor.logs = [];
         if (valor.logs.length > 600) valor.logs = valor.logs.slice(-600);
@@ -2678,17 +2686,61 @@
         }
     }
 
+    function itemEhPasta(item) {
+        return !!item && item.classList.contains('arvore-item-pasta');
+    }
+
+    function rotuloItemArvore(item) {
+        var nome = item && item.querySelector('.arvore-item-conteudo .arvore-item-nome');
+        return clean(nome ? nome.textContent : (item && item.innerText));
+    }
+
+    function itemCorresponde(item, texto) {
+        var rotulo = rotuloItemArvore(item);
+        var titulo = item && item.getAttribute('title');
+        return mesmoTexto(rotulo, texto) || mesmoTexto(titulo, texto);
+    }
+
     function itemDaArvore(box, texto) {
-        return visiveis('.arvore-item').find(function (n) {
-            if (box && !box.contains(n)) return false;
-            return mesmoTexto(n.innerText, texto) || mesmoTexto(n.getAttribute('title'), texto);
+        return visiveis('.arvore-item').filter(function (n) {
+            return (!box || box.contains(n)) && itemCorresponde(n, texto);
+        }).sort(function (a, b) {
+            return Number(itemEhPasta(a)) - Number(itemEhPasta(b));
+        })[0] || null;
+    }
+
+    function itemSelecionavelDaPasta(pasta, texto) {
+        var descendentes = visiveis('.arvore-item').filter(function (n) {
+            return n !== pasta && pasta.contains(n);
+        });
+        return descendentes.find(function (n) {
+            return n.classList.contains('arvore-item-selecionar-tudo') &&
+                (clean(n.getAttribute('title')).toLocaleLowerCase('pt-BR').indexOf(clean(texto).toLocaleLowerCase('pt-BR')) >= 0);
+        }) || descendentes.find(function (n) {
+            return !itemEhPasta(n) && itemCorresponde(n, texto);
         }) || null;
+    }
+
+    async function itemSelecionavel(box, texto) {
+        var item = itemDaArvore(box, texto);
+        if (!item || !itemEhPasta(item)) return item;
+
+        if (item.getAttribute('aria-expanded') !== 'true') {
+            (item.querySelector('.arvore-item-conteudo') || item).click();
+        }
+        await esperar(function () {
+            var pastaAtual = itemDaArvore(box, texto) || item;
+            return itemSelecionavelDaPasta(pastaAtual, texto);
+        }, 3500, 'A pasta de filtro "' + texto + '" não abriu.');
+        item = itemDaArvore(box, texto) || item;
+        return itemSelecionavelDaPasta(item, texto) || item;
     }
 
     function itemSelecionado(box, texto) {
         return visiveis('.arvore-item').some(function (n) {
             return box.contains(n) && n.classList.contains('arvore-item-selecionado') &&
-                (mesmoTexto(n.innerText, texto) || mesmoTexto(n.getAttribute('title'), texto));
+                (itemCorresponde(n, texto) || (n.classList.contains('arvore-item-selecionar-tudo') &&
+                    clean(n.getAttribute('title')).toLocaleLowerCase('pt-BR').indexOf(clean(texto).toLocaleLowerCase('pt-BR')) >= 0));
         });
     }
 
@@ -2742,8 +2794,10 @@
             throw new Error('"' + valor + '" não encontrado no filtro ' + titulo + '.');
         }
         await pausaAleatoria();
+        // Pastas não são selecionáveis: abre a pasta e usa "Todo o conteúdo".
+        item = await itemSelecionavel(box, candidatoAchado);
         // a lista pode ter sido re-renderizada pelo Angular após a busca: re-obtém o nó fresco
-        if (!item.isConnected) item = itemDaArvore(box, candidatoAchado) || item;
+        if (!item || !item.isConnected) item = await itemSelecionavel(box, candidatoAchado) || item;
         (item.querySelector('.arvore-item-conteudo') || item).click();
         try {
             await esperar(function () { return itemSelecionado(box, candidatoAchado); }, 2500, '');
@@ -2754,7 +2808,7 @@
         } catch (e) {
             // fallback Angular (mesmo do projeto): dispara vm.notificarClick no escopo do item
             await workerSleep(400);
-            if (!item.isConnected) item = itemDaArvore(box, candidatoAchado) || item;
+            if (!item || !item.isConnected) item = await itemSelecionavel(box, candidatoAchado) || item;
             var clickable = item.querySelector('.arvore-item-conteudo') || item;
             var angEl = angular.element(clickable);
             var scope = angEl && ((typeof angEl.isolateScope === 'function' && angEl.isolateScope()) || (typeof angEl.scope === 'function' && angEl.scope()));
@@ -3366,6 +3420,66 @@
         return modoCriarTudoAtivo() && estado.passada !== 'coleta';
     }
 
+    /* ---- cronometria da passada de criação ---- */
+    function cronometriaCriacao() {
+        if (!estado.cronometriaCriacao || typeof estado.cronometriaCriacao !== 'object') {
+            estado.cronometriaCriacao = { amostras: [], atual: null };
+        }
+        return estado.cronometriaCriacao;
+    }
+
+    function marcarInicioCriacao() {
+        if (!passadaCriacao()) return;
+        var cron = cronometriaCriacao();
+        if (cron.atual && Number(cron.atual.planIndex) === estado.planIndex) return;
+        cron.atual = {
+            planIndex: estado.planIndex,
+            inicio: Date.now(),
+            delayMin: CONFIG.delayMin,
+            delayMax: CONFIG.delayMax
+        };
+    }
+
+    function registrarCriacaoConcluida() {
+        var cron = cronometriaCriacao();
+        var atual = cron.atual;
+        cron.atual = null;
+        if (!atual || Number(atual.planIndex) !== estado.planIndex) return;
+        var agora = Date.now();
+        var ms = agora - Number(atual.inicio || agora);
+        if (ms <= 0) return;
+        cron.amostras = cron.amostras || [];
+        cron.amostras.push({
+            ms: ms,
+            delayMin: Number(atual.delayMin) || CONFIG.delayMin,
+            delayMax: Number(atual.delayMax) || CONFIG.delayMax
+        });
+        if (cron.amostras.length > 40) cron.amostras = cron.amostras.slice(-40);
+    }
+
+    function estimarRestanteCriacao() {
+        var plano = estado.plano;
+        var total = plano && Array.isArray(plano.matters) ? plano.matters.length : 0;
+        var restantes = Math.max(0, total - Number(estado.planIndex || 0));
+        var cron = cronometriaCriacao();
+        var amostras = Array.isArray(cron.amostras) ? cron.amostras : [];
+        if (!amostras.length) {
+            return { restantes: restantes, porMateriaMs: 0, totalMs: 0, fator: 1, temAmostras: false };
+        }
+        var somaMs = 0;
+        var somaDelay = 0;
+        amostras.forEach(function (a) {
+            somaMs += Number(a && a.ms) || 0;
+            somaDelay += ((Number(a && a.delayMin) || 0) + (Number(a && a.delayMax) || 0)) / 2;
+        });
+        var mediaMs = somaMs / amostras.length;
+        var mediaDelay = somaDelay / amostras.length;
+        var delayAtual = ((Number(CONFIG.delayMin) || 0) + (Number(CONFIG.delayMax) || 0)) / 2;
+        var fator = mediaDelay > 0 && delayAtual > 0 ? delayAtual / mediaDelay : 1;
+        var porMateriaMs = Math.max(0, mediaMs * fator);
+        return { restantes: restantes, porMateriaMs: porMateriaMs, totalMs: porMateriaMs * restantes, fator: fator, temAmostras: true };
+    }
+
     function iniciarPassadaColeta() {
         var plano = estado.plano || { matters: [] };
         var config = estado.config || {};
@@ -3524,6 +3638,7 @@
     }
 
     function avancarMateria() {
+        if (passadaCriacao()) registrarCriacaoConcluida();
         estado.planIndex += 1;
         estado.cadernoAtual = null;
         estado.fase = 'nenhuma';
@@ -3597,6 +3712,8 @@
             return;
         }
         if (estado.planIndex >= plano.matters.length) { terminarCompleto(); return; }
+
+        marcarInicioCriacao();
 
         var materia = plano.matters[estado.planIndex];
         var idCadernoRota = paginaAtual() === 'caderno' ? cadernoIdDaUrl() : '';
@@ -3774,6 +3891,7 @@
                         log('Decisão: filtros não retornaram questões; pulando matéria.', {
                             tipo: 'decisao', nivel: 'warn', fase: 'filtros', contexto: { materia: materia.title, questoes: 0 }
                         });
+                        if (passadaCriacao()) registrarCriacaoConcluida();
                         estado.planIndex += 1;
                         estado.fase = 'nenhuma';
                         salvarEstado();
@@ -5135,6 +5253,19 @@
             '</div><div id="tf-config-aviso"></div>';
     }
 
+    function formatarDuracaoMs(ms) {
+        var v = Math.max(0, Math.round(Number(ms) || 0));
+        if (v < 1000) return (v || 0) + 'ms';
+        var seg = Math.round(v / 1000);
+        if (seg < 60) return '~' + seg + 's';
+        var min = Math.floor(seg / 60);
+        var restoSeg = seg % 60;
+        if (min < 60) return (restoSeg ? min + 'min ' + restoSeg + 's' : min + 'min');
+        var h = Math.floor(min / 60);
+        var restoMin = min % 60;
+        return h + 'h ' + (restoMin ? restoMin + 'min' : '');
+    }
+
     function htmlExecucao() {
         var p = estado.plano;
         var c = estado.config;
@@ -5160,6 +5291,18 @@
         var passadaLabel = (c && c.modoCriacao === 'criar-tudo')
             ? (estado.passada === 'coleta' ? '🔄 Passada 2/2 · coletando questões' : '🛠️ Passada 1/2 · criando cadernos')
             : '';
+        var criandoCadernos = !!(c && c.modoCriacao === 'criar-tudo' && estado.passada !== 'coleta');
+        var secaoCriacao = '';
+        if (criandoCadernos) {
+            var resumoCriacao = estimarRestanteCriacao();
+            secaoCriacao =
+                '<div class="tf-secao-titulo">Criação de cadernos</div>' +
+                '<div class="tf-resumo">Faltam <b id="tf-restantes-exec">' + resumoCriacao.restantes + '</b> de <b>' + total + '</b> matérias para criar</div>' +
+                '<div class="tf-linha"><label style="width:150px">Tempo entre cliques (s)</label><input type="text" id="tf-delay-exec" value="' + ((c.delayMin || CONFIG.delayMin) / 1000) + '-' + ((c.delayMax || CONFIG.delayMax) / 1000) + '" placeholder="3-6"></div>' +
+                '<div class="tf-resumo" id="tf-eta-exec">' + (resumoCriacao.temAmostras
+                    ? 'Estimativa para criar as <b>' + resumoCriacao.restantes + '</b> matérias restantes: <b>' + formatarDuracaoMs(resumoCriacao.totalMs) + '</b> (cerca de ' + formatarDuracaoMs(resumoCriacao.porMateriaMs) + ' por matéria)'
+                    : 'Criando a 1ª matéria... a estimativa aparece depois da 1ª criação.') + '</div>';
+        }
         return '<div class="tf-status-msg" id="tf-msg">' + escapeHtml(faseTxt) + (estado.cadernoAtual ? ' · ' + escapeHtml(estado.cadernoAtual.titulo) : '') + ' · <small>' + modoLabel + (passadaLabel ? ' · ' + passadaLabel : '') + '</small></div>' + msg + msgErro +
             '<div class="tf-status-msg" id="tf-limite-diario">Resoluções hoje: ' + diario.usadas + '/' + diario.limite + ' · Restam ' + diario.restantes + '</div>' +
             '<div class="tf-secao-titulo">Progresso do plano</div>' +
@@ -5168,6 +5311,7 @@
             '<div class="tf-secao-titulo">Lote atual (matérias ' + (estado.loteInicio + 1) + '–' + loteFim + ')</div>' +
             '<div class="tf-bar"><div style="width:' + Math.max(0, lotePct) + '%"></div></div>' +
             '<div class="tf-bar-label"><span>Atual: ' + escapeHtml(materiaAtual) + '</span><span>' + Math.max(0, lotePct) + '%</span></div>' +
+            secaoCriacao +
             (cad ? '<div class="tf-secao-titulo">Caderno em andamento</div>' +
                 '<div class="tf-bar"><div style="width:' + cadPct + '%"></div></div>' +
                 '<div class="tf-bar-label"><span>' + escapeHtml(cadLabel) + '</span><span>' + cadPct + '%</span></div>' : '') +
@@ -5351,6 +5495,27 @@
         var btnParar = corpo.querySelector('#tf-parar');
         if (btnParar) btnParar.addEventListener('click', parar);
 
+        var delayExec = corpo.querySelector('#tf-delay-exec');
+        if (delayExec) {
+            var aplicarDelayExec = function () {
+                var partes = delayExec.value.split('-');
+                var dmin = Math.max(500, parseInt(partes[0], 10) * 1000 || CONFIG.delayMin);
+                var dmax = Math.max(dmin, parseInt(partes[1], 10) * 1000 || CONFIG.delayMax);
+                CONFIG.delayMin = dmin;
+                CONFIG.delayMax = dmax;
+                if (estado.config) {
+                    estado.config.delayMin = dmin;
+                    estado.config.delayMax = dmax;
+                }
+                atualizarCronometriaExec();
+            };
+            delayExec.addEventListener('input', aplicarDelayExec);
+            delayExec.addEventListener('change', function () {
+                aplicarDelayExec();
+                salvarEstado();
+            });
+        }
+
         var copiarLog = corpo.querySelector('#tf-log-copiar');
         if (copiarLog) copiarLog.addEventListener('click', function () {
             var texto = textoCompletoLog();
@@ -5527,6 +5692,19 @@
         if (arvoreEl && estado.plano) arvoreEl.innerHTML = PLANO_UI_MODEL.renderArvore(estado.plano, statusMaterias(estado));
     }
 
+    function atualizarCronometriaExec() {
+        var elRest = document.getElementById('tf-restantes-exec');
+        var elEta = document.getElementById('tf-eta-exec');
+        if (!elRest && !elEta) return;
+        var resumo = estimarRestanteCriacao();
+        if (elRest) elRest.textContent = String(resumo.restantes);
+        if (elEta) {
+            elEta.innerHTML = resumo.temAmostras
+                ? 'Estimativa para criar as <b>' + resumo.restantes + '</b> matérias restantes: <b>' + formatarDuracaoMs(resumo.totalMs) + '</b> (cerca de ' + formatarDuracaoMs(resumo.porMateriaMs) + ' por matéria)'
+                : 'Criando a 1ª matéria... a estimativa aparece depois da 1ª criação.';
+        }
+    }
+
     /* ---- implementação dos hooks da UI ---- */
     UI.appendLog = function (msg) { anexarLog(msg); };
     UI.setStatus = function (msg) {
@@ -5551,7 +5729,8 @@
             quick.title = rodando ? 'Pausar execução' : 'Continuar execução';
             quick.setAttribute('aria-label', quick.title);
         }
-        if (abaAtiva === 'exec') mostrarAba('exec');
+        var focoDelay = typeof document !== 'undefined' && document.activeElement && document.activeElement.id === 'tf-delay-exec';
+        if (abaAtiva === 'exec' && !focoDelay) mostrarAba('exec');
     };
     UI.renderBiblioteca = function () {
         if (!painelEl) return;

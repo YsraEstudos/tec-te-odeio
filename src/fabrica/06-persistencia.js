@@ -81,6 +81,7 @@
             passada: 'criacao',
             planIndex: 0, loteInicio: 0, loteFim: 0, cadernoAtual: null,
             biblioteca: {}, logs: [], controleResolucoesDiarias: { data: null, total: 0 },
+            cronometriaCriacao: { amostras: [], atual: null },
             mensagem: '', erro: null, retomada: false, atualizadoEm: null
         };
     }
@@ -112,6 +113,13 @@
         }
         if (typeof normalizarControleResolucoesDiarias === 'function') {
             normalizarControleResolucoesDiarias(valor);
+        }
+        if (!valor.cronometriaCriacao || typeof valor.cronometriaCriacao !== 'object') {
+            valor.cronometriaCriacao = { amostras: [], atual: null };
+        } else {
+            if (!Array.isArray(valor.cronometriaCriacao.amostras)) valor.cronometriaCriacao.amostras = [];
+            if (valor.cronometriaCriacao.amostras.length > 40) valor.cronometriaCriacao.amostras = valor.cronometriaCriacao.amostras.slice(-40);
+            if (valor.cronometriaCriacao.atual && typeof valor.cronometriaCriacao.atual !== 'object') valor.cronometriaCriacao.atual = null;
         }
         if (!Array.isArray(valor.logs)) valor.logs = [];
         if (valor.logs.length > 600) valor.logs = valor.logs.slice(-600);

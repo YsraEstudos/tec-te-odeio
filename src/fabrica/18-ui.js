@@ -257,6 +257,19 @@
             '</div><div id="tf-config-aviso"></div>';
     }
 
+    function formatarDuracaoMs(ms) {
+        var v = Math.max(0, Math.round(Number(ms) || 0));
+        if (v < 1000) return (v || 0) + 'ms';
+        var seg = Math.round(v / 1000);
+        if (seg < 60) return '~' + seg + 's';
+        var min = Math.floor(seg / 60);
+        var restoSeg = seg % 60;
+        if (min < 60) return (restoSeg ? min + 'min ' + restoSeg + 's' : min + 'min');
+        var h = Math.floor(min / 60);
+        var restoMin = min % 60;
+        return h + 'h ' + (restoMin ? restoMin + 'min' : '');
+    }
+
     function htmlExecucao() {
         var p = estado.plano;
         var c = estado.config;
@@ -282,6 +295,18 @@
         var passadaLabel = (c && c.modoCriacao === 'criar-tudo')
             ? (estado.passada === 'coleta' ? '🔄 Passada 2/2 · coletando questões' : '🛠️ Passada 1/2 · criando cadernos')
             : '';
+        var criandoCadernos = !!(c && c.modoCriacao === 'criar-tudo' && estado.passada !== 'coleta');
+        var secaoCriacao = '';
+        if (criandoCadernos) {
+            var resumoCriacao = estimarRestanteCriacao();
+            secaoCriacao =
+                '<div class="tf-secao-titulo">Criação de cadernos</div>' +
+                '<div class="tf-resumo">Faltam <b id="tf-restantes-exec">' + resumoCriacao.restantes + '</b> de <b>' + total + '</b> matérias para criar</div>' +
+                '<div class="tf-linha"><label style="width:150px">Tempo entre cliques (s)</label><input type="text" id="tf-delay-exec" value="' + ((c.delayMin || CONFIG.delayMin) / 1000) + '-' + ((c.delayMax || CONFIG.delayMax) / 1000) + '" placeholder="3-6"></div>' +
+                '<div class="tf-resumo" id="tf-eta-exec">' + (resumoCriacao.temAmostras
+                    ? 'Estimativa para criar as <b>' + resumoCriacao.restantes + '</b> matérias restantes: <b>' + formatarDuracaoMs(resumoCriacao.totalMs) + '</b> (cerca de ' + formatarDuracaoMs(resumoCriacao.porMateriaMs) + ' por matéria)'
+                    : 'Criando a 1ª matéria... a estimativa aparece depois da 1ª criação.') + '</div>';
+        }
         return '<div class="tf-status-msg" id="tf-msg">' + escapeHtml(faseTxt) + (estado.cadernoAtual ? ' · ' + escapeHtml(estado.cadernoAtual.titulo) : '') + ' · <small>' + modoLabel + (passadaLabel ? ' · ' + passadaLabel : '') + '</small></div>' + msg + msgErro +
             '<div class="tf-status-msg" id="tf-limite-diario">Resoluções hoje: ' + diario.usadas + '/' + diario.limite + ' · Restam ' + diario.restantes + '</div>' +
             '<div class="tf-secao-titulo">Progresso do plano</div>' +
@@ -290,6 +315,7 @@
             '<div class="tf-secao-titulo">Lote atual (matérias ' + (estado.loteInicio + 1) + '–' + loteFim + ')</div>' +
             '<div class="tf-bar"><div style="width:' + Math.max(0, lotePct) + '%"></div></div>' +
             '<div class="tf-bar-label"><span>Atual: ' + escapeHtml(materiaAtual) + '</span><span>' + Math.max(0, lotePct) + '%</span></div>' +
+            secaoCriacao +
             (cad ? '<div class="tf-secao-titulo">Caderno em andamento</div>' +
                 '<div class="tf-bar"><div style="width:' + cadPct + '%"></div></div>' +
                 '<div class="tf-bar-label"><span>' + escapeHtml(cadLabel) + '</span><span>' + cadPct + '%</span></div>' : '') +
@@ -473,6 +499,27 @@
         var btnParar = corpo.querySelector('#tf-parar');
         if (btnParar) btnParar.addEventListener('click', parar);
 
+        var delayExec = corpo.querySelector('#tf-delay-exec');
+        if (delayExec) {
+            var aplicarDelayExec = function () {
+                var partes = delayExec.value.split('-');
+                var dmin = Math.max(500, parseInt(partes[0], 10) * 1000 || CONFIG.delayMin);
+                var dmax = Math.max(dmin, parseInt(partes[1], 10) * 1000 || CONFIG.delayMax);
+                CONFIG.delayMin = dmin;
+                CONFIG.delayMax = dmax;
+                if (estado.config) {
+                    estado.config.delayMin = dmin;
+                    estado.config.delayMax = dmax;
+                }
+                atualizarCronometriaExec();
+            };
+            delayExec.addEventListener('input', aplicarDelayExec);
+            delayExec.addEventListener('change', function () {
+                aplicarDelayExec();
+                salvarEstado();
+            });
+        }
+
         var copiarLog = corpo.querySelector('#tf-log-copiar');
         if (copiarLog) copiarLog.addEventListener('click', function () {
             var texto = textoCompletoLog();
@@ -649,6 +696,19 @@
         if (arvoreEl && estado.plano) arvoreEl.innerHTML = PLANO_UI_MODEL.renderArvore(estado.plano, statusMaterias(estado));
     }
 
+    function atualizarCronometriaExec() {
+        var elRest = document.getElementById('tf-restantes-exec');
+        var elEta = document.getElementById('tf-eta-exec');
+        if (!elRest && !elEta) return;
+        var resumo = estimarRestanteCriacao();
+        if (elRest) elRest.textContent = String(resumo.restantes);
+        if (elEta) {
+            elEta.innerHTML = resumo.temAmostras
+                ? 'Estimativa para criar as <b>' + resumo.restantes + '</b> matérias restantes: <b>' + formatarDuracaoMs(resumo.totalMs) + '</b> (cerca de ' + formatarDuracaoMs(resumo.porMateriaMs) + ' por matéria)'
+                : 'Criando a 1ª matéria... a estimativa aparece depois da 1ª criação.';
+        }
+    }
+
     /* ---- implementação dos hooks da UI ---- */
     UI.appendLog = function (msg) { anexarLog(msg); };
     UI.setStatus = function (msg) {
@@ -673,7 +733,8 @@
             quick.title = rodando ? 'Pausar execução' : 'Continuar execução';
             quick.setAttribute('aria-label', quick.title);
         }
-        if (abaAtiva === 'exec') mostrarAba('exec');
+        var focoDelay = typeof document !== 'undefined' && document.activeElement && document.activeElement.id === 'tf-delay-exec';
+        if (abaAtiva === 'exec' && !focoDelay) mostrarAba('exec');
     };
     UI.renderBiblioteca = function () {
         if (!painelEl) return;
