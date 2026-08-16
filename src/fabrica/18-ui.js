@@ -134,7 +134,6 @@
             '</div>' +
             '<div class="tf-corpo" id="tf-corpo"></div>';
         document.body.appendChild(painelEl);
-        painelEl.style.display = 'none';
 
         painelEl.querySelectorAll('.tf-aba').forEach(function (b) {
             b.addEventListener('click', function () { mostrarAba(b.getAttribute('data-aba')); });
