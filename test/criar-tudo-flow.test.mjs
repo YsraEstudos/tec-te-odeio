@@ -50,6 +50,12 @@ test('orquestrador continua quando a criação muda a rota por SPA', () => {
   assert.match(orchestratorSource, /if \(paginaAtual\(\) === 'caderno'\) processarLote\(\);/);
 });
 
+test('retomada em caderno recupera checkpoint que ficou em criar-novo', () => {
+  assert.match(orchestratorSource, /function registrarCadernoCriadoNaRota\(materia\)/);
+  assert.match(orchestratorSource, /paginaAtual\(\) === 'caderno' && estado\.fase === 'criar-novo'/);
+  assert.match(orchestratorSource, /origem: 'rota-pos-criacao'/);
+});
+
 test('orquestrador: passada de coleta pula matérias sem caderno', () => {
   assert.match(orchestratorSource, /estado\.passada === 'coleta' && !existente/);
   assert.match(orchestratorSource, /a passada de criação já rodou/);

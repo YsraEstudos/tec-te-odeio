@@ -3477,6 +3477,42 @@
         }
     }
 
+    function registrarCadernoCriadoNaRota(materia) {
+        var id = String(cadernoIdDaUrl() || '');
+        if (!id) return false;
+        var caderno = estado.biblioteca[id] || {
+            id: id,
+            titulo: materia.title,
+            categoria: materia.group || 'Plano',
+            total: 0,
+            coletadas: 0,
+            completo: false,
+            questoes: []
+        };
+        caderno.id = id;
+        caderno.titulo = caderno.titulo || materia.title;
+        caderno.categoria = caderno.categoria || materia.group || 'Plano';
+        caderno.total = caderno.total || estado.pendenciaContagem || 0;
+        caderno.questoes = Array.isArray(caderno.questoes) ? caderno.questoes : [];
+        caderno.coletadas = caderno.questoes.length;
+        caderno.completo = caderno.completo === true && caderno.questoes.length > 0;
+        estado.biblioteca[id] = caderno;
+        delete estado.pendenciaContagem;
+        estado.fase = 'nenhuma';
+        var deveAvancarSemColetar = passadaCriacao();
+        estado.cadernoAtual = deveAvancarSemColetar ? null : caderno;
+        salvarEstado(true);
+        UI.renderBiblioteca();
+        log('Recuperação: caderno criado encontrado na rota; registro concluído.' +
+            (deveAvancarSemColetar ? ' Avançando sem coletar nesta passada.' : ' Iniciando coleta.'), {
+                tipo: 'decisao', nivel: 'ok', fase: 'criando',
+                contexto: { materia: materia.title, cadernoId: id, origem: 'rota-pos-criacao', passada: deveAvancarSemColetar ? 'criacao' : 'coleta' }
+            });
+        if (deveAvancarSemColetar) avancarMateria();
+        else processarLote();
+        return true;
+    }
+
     async function processarLote() {
         var plano = estado.plano;
         var config = estado.config;
@@ -3518,6 +3554,14 @@
             tipo: 'observacao', fase: estado.fase || 'nenhuma',
             contexto: { planIndex: estado.planIndex, materias: plano.matters.length, materia: materia.title, cadernoRegistrado: !!existente, pagina: paginaAtual() }
         });
+
+        // Se a navegação para o caderno terminou antes do checkpoint de
+        // "criando", a rota é a prova de que a criação foi concluída. Não
+        // volte aos filtros para gerar o mesmo caderno novamente.
+        if (!existente && paginaAtual() === 'caderno' && estado.fase === 'criar-novo') {
+            registrarCadernoCriadoNaRota(materia);
+            return;
+        }
 
         if (modoCriarTudoAtivo() && estado.passada === 'coleta' && !existente) {
             log('decisão: matéria sem caderno na passada de coleta; avançando (a passada de criação já rodou).', {
