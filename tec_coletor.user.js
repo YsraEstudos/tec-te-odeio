@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Tec Concursos — Coletor Fantasma de Caderno
 // @namespace    tec-coletor-fantasma
-// @version      1.0.0
+// @version      1.0.1
 // @description  Coleta silenciosamente todas as questões do caderno aberto (enunciado + alternativas) e exporta um JSON pronto para PDF/Anki.
 // @author       voce
 // @match        https://www.tecconcursos.com.br/questoes/cadernos/*
