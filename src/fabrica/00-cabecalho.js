@@ -83,3 +83,23 @@
     // Versão do script — espelha @version no cabeçalho do userscript; logada
     // no Console na inicialização para conferir a cópia em execução.
     var SCRIPT_VERSION = '1.1.0';
+
+    // O gerenciador pode manter versões antigas instaladas em paralelo. Sem
+    // este bloqueio, duas máquinas de estado clicam no mesmo filtro e uma
+    // delas pode desfazer a seleção feita pela outra.
+    var TEC_FABRICA_RUNTIME_KEY = '__TecFabricaRuntime';
+    var runtimeExistente = window[TEC_FABRICA_RUNTIME_KEY];
+    if (runtimeExistente && runtimeExistente.ativo) {
+        try {
+            console.warn('[TecFabrica] Instância ignorada: já existe uma instância ativa.', {
+                existente: runtimeExistente.versao || 'desconhecida',
+                atual: SCRIPT_VERSION
+            });
+        } catch (e) {}
+        return;
+    }
+    window[TEC_FABRICA_RUNTIME_KEY] = {
+        ativo: true,
+        versao: SCRIPT_VERSION,
+        iniciadoEm: Date.now()
+    };
