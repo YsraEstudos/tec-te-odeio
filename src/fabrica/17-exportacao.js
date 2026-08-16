@@ -476,7 +476,13 @@
             bytes = dataMatch[2] ? decodeBase64(dataMatch[3]) : null;
         } else if (/^https?:/i.test(raw) && typeof fetch === 'function') {
             try {
-                var response = await fetch(raw, { credentials: 'include' });
+                var credenciais = 'omit';
+                try {
+                    var imagemUrl = typeof URL === 'function' ? new URL(raw) : null;
+                    var origemAtual = typeof location !== 'undefined' ? location.origin : '';
+                    if (imagemUrl && origemAtual && imagemUrl.origin === origemAtual) credenciais = 'same-origin';
+                } catch (e2) {}
+                var response = await fetch(raw, { credentials: credenciais, redirect: 'error' });
                 if (!response || !response.ok) return null;
                 mime = response.headers.get('content-type') || '';
                 bytes = new Uint8Array(await response.arrayBuffer());
