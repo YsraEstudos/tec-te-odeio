@@ -765,6 +765,7 @@
      * PAINEL
      * ============================================================ */
     var painel = null;
+    var painelTogglePendente = false;
 
     function criarPainel() {
         painel = document.createElement('div');
@@ -797,7 +798,8 @@
             '#tec-coletor-painel .tcc-opcao input{margin-right:4px;vertical-align:middle}';
         document.head.appendChild(css);
         document.body.appendChild(painel);
-        painel.style.display = 'none';
+        painel.style.display = painelTogglePendente ? 'block' : 'none';
+        painelTogglePendente = false;
 
         painel.addEventListener('click', function (e) {
             var btn = e.target.closest('button');
@@ -846,8 +848,11 @@
     }
 
     function alternarPainel() {
-        if (!painel) return;
-        painel.style.display = painel.style.display === 'none' ? '' : 'none';
+        if (!painel) {
+            painelTogglePendente = !painelTogglePendente;
+            return;
+        }
+        painel.style.display = painel.style.display === 'none' ? 'block' : 'none';
     }
 
     /* ============================================================
@@ -880,13 +885,14 @@
 
     // restaura o estado do IndexedDB ANTES de criar a UI e do auto-start
     try {
-        document.addEventListener('keydown', function (e) {
-            if (e.altKey && e.shiftKey && e.code === 'KeyC') {
+        window.addEventListener('keydown', function (e) {
+            var tecla = String(e.key || '').toLowerCase();
+            if (e.altKey && e.shiftKey && (e.code === 'KeyC' || tecla === 'c' || tecla === 'ç')) {
                 e.preventDefault();
                 e.stopPropagation();
                 alternarPainel();
             }
-        });
+        }, true);
     } catch (e) {}
 
     carregarEstado().then(function () {
