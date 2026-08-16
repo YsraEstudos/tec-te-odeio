@@ -3,7 +3,7 @@
 Ferramenta **separada** e **fora de `dist/`**: gera uma variante instrumentada
 do userscript, com contadores de persistência, timers/Workers/URLs e memória
 observável — sem tocar no build limpo, nas fontes ou nos arquivos protegidos
-(`tec_fabrica_cadernos.user.js`, `tec_coletor.user.js`, `gerar_pdf.py`).
+(`tec_fabrica_cadernos.user.js`, `gerar_pdf.py`).
 
 Sem dependências externas (só Node + vm).
 
