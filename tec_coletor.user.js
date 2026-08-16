@@ -883,7 +883,9 @@
         }
     }
 
-    // restaura o estado do IndexedDB ANTES de criar a UI e do auto-start
+    // O painel não depende do IndexedDB: o Edge pode bloquear storage e deixar
+    // a abertura pendurada. A UI aparece imediatamente; o estado é restaurado
+    // em segundo plano quando o navegador permitir.
     try {
         window.addEventListener('keydown', function (e) {
             var tecla = String(e.key || '').toLowerCase();
@@ -895,8 +897,9 @@
         }, true);
     } catch (e) {}
 
+    criarPainel();
+    atualizarPainel();
     carregarEstado().then(function () {
-        criarPainel();
         atualizarPainel();
         aguardarPaginaPronta(function (ok) {
             if (!ok) { log('Página do caderno não carregou. Painel disponível para ação manual.'); return; }
