@@ -2858,6 +2858,87 @@
         });
     }
 
+    function filtroSalvoPorNome(menu, nome) {
+        if (!menu) return null;
+        return Array.from(menu.querySelectorAll('.filtro-salvo')).find(function (filtro) {
+            var nomeEl = filtro.querySelector('.nome-filtro');
+            return elementoVisivel(filtro) && nomeEl && mesmoTexto(nomeEl.innerText, nome);
+        }) || null;
+    }
+
+    function botaoFiltroSalvo(filtro) {
+        return filtro ? filtro.querySelector('button.btn.btn-tec') : null;
+    }
+
+    function botaoFiltroDesabilitado(botao) {
+        return !!botao && (botao.disabled || botao.hasAttribute('disabled'));
+    }
+
+    async function carregarFiltroPadrao() {
+        log('Tentando carregar o filtro salvo Padrao.', {
+            tipo: 'tentativa', fase: 'filtros', contexto: { filtro: 'Padrao' }
+        });
+
+        var abrir = visiveis('a.gerador-filtrador-cabecalho-carregar.link-limpo').find(function (n) {
+            return mesmoTexto(n.innerText, 'Carregar');
+        });
+        if (!abrir) {
+            log('Link para carregar filtros salvos não encontrado.', {
+                tipo: 'resultado', nivel: 'erro', fase: 'filtros', contexto: { filtro: 'Padrao' }
+            });
+            throw new Error('O link "Carregar" dos filtros salvos não foi encontrado.');
+        }
+
+        // Clica no <a>, não no span interno, para evitar que o ng-click seja
+        // disparado duas vezes.
+        abrir.click();
+
+        await esperar(function () {
+            var menu = document.querySelector('#sub-menu-filtros-salvos');
+            return elementoVisivel(menu) && !!filtroSalvoPorNome(menu, 'Padrao');
+        }, 10000, 'O menu de filtros salvos não abriu ou o filtro "Padrao" não apareceu.');
+
+        var menu = document.querySelector('#sub-menu-filtros-salvos');
+        var filtro = filtroSalvoPorNome(menu, 'Padrao');
+        var botao = botaoFiltroSalvo(filtro);
+        if (!botao) {
+            log('Botão do filtro salvo Padrao não encontrado.', {
+                tipo: 'resultado', nivel: 'erro', fase: 'filtros', contexto: { filtro: 'Padrao' }
+            });
+            throw new Error('O botão "Carregar" do filtro salvo "Padrao" não foi encontrado.');
+        }
+
+        await esperar(function () {
+            var atual = filtroSalvoPorNome(document.querySelector('#sub-menu-filtros-salvos'), 'Padrao');
+            var botaoAtual = botaoFiltroSalvo(atual) || botao;
+            return elementoVisivel(botaoAtual) && !botaoFiltroDesabilitado(botaoAtual);
+        }, 5000, 'O filtro salvo "Padrao" permaneceu carregando e não ficou disponível.');
+
+        var ativosAntes = contarFiltrosAtivos();
+        var minimoFim = Date.now() + 650;
+        botao.click();
+
+        await esperar(function () {
+            var menuAtual = document.querySelector('#sub-menu-filtros-salvos');
+            var filtroAtual = filtroSalvoPorNome(menuAtual, 'Padrao');
+            var botaoAtual = botaoFiltroSalvo(filtroAtual);
+            var menuFechado = !menuAtual || !elementoVisivel(menuAtual);
+            var contagemMudou = contarFiltrosAtivos() !== ativosAntes;
+            var carregando = botaoFiltroDesabilitado(botaoAtual);
+
+            // O site usa vm.carregandoFiltros no ng-disabled. A confirmação
+            // espera o disabled desaparecer e dá tempo para o digest/render
+            // atualizar os filtros antes da matéria ser selecionada.
+            return Date.now() >= minimoFim && !carregando &&
+                (menuFechado || contagemMudou || Date.now() >= minimoFim + 350);
+        }, 10000, 'O filtro salvo "Padrao" não terminou de carregar.');
+
+        log('Filtro salvo Padrao carregado; continuando apenas com a matéria.', {
+            tipo: 'resultado', nivel: 'ok', fase: 'filtros',
+            contexto: { filtro: 'Padrao', ativosAntes: ativosAntes, ativosDepois: contarFiltrosAtivos() }
+        });
+    }
+
     function lerContagem() {
         var el = document.querySelector('.gerador-filtrador strong.ng-binding');
         return el ? parseInt(clean(el.textContent).replace(/\D/g, ''), 10) || 0 : 0;
@@ -2877,7 +2958,10 @@
             tipo: 'observacao', fase: 'filtros',
             contexto: { materia: materia.title, assuntos: materia.subjectPaths.length, bancas: plano.banks.length, anos: plano.years.length, removerAnuladas: plano.removeCancelled, removerDesatualizadas: plano.removeOutdated }
         });
-        await limparFiltros();
+        // O filtro salvo Padrao já preenche bancas, anos e opções. Depois dele,
+        // só falta completar a matéria/assunto da execução atual.
+        await carregarFiltroPadrao();
+
         // assuntos (folha de cada caminho)
         for (var i = 0; i < materia.subjectPaths.length; i += 1) {
             var folha = ultimoSegmento(materia.subjectPaths[i]);
@@ -2885,25 +2969,7 @@
             UI.setStatus('Filtros: assunto "' + folha + '"');
             await selecionarValor('Matéria e assunto', folha);
         }
-        // bancas
-        for (var b = 0; b < plano.banks.length; b += 1) {
-            UI.setStatus('Filtros: banca ' + plano.banks[b]);
-            await selecionarValor('Banca', plano.banks[b]);
-        }
-        // anos
-        for (var y = 0; y < plano.years.length; y += 1) {
-            UI.setStatus('Filtros: ano ' + plano.years[y]);
-            await selecionarValor('Ano', String(plano.years[y]));
-        }
-        // opções
-        if (plano.removeCancelled) {
-            var anuladas = visiveis("[role='button'].link-atalho").find(function (n) { return /Remover anuladas/i.test(n.innerText || ''); });
-            if (anuladas) { await pausaAleatoria(); anuladas.click(); await workerSleep(1200); }
-        }
-        if (plano.removeOutdated) {
-            var desatualizadas = visiveis("[role='button'].link-atalho").find(function (n) { return /Remover desatualizadas/i.test(n.innerText || ''); });
-            if (desatualizadas) { await pausaAleatoria(); desatualizadas.click(); await workerSleep(1200); }
-        }
+
         // aguarda o contador estabilizar
         await esperar(function () { return lerContagem() > 0; }, CONFIG.filtroTimeout, 'Os filtros não retornaram questões.');
         log('Filtros aplicados e contador de questões confirmado.', {
