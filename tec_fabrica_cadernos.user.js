@@ -1034,38 +1034,82 @@
         await esperar(function () { return contarFiltrosAtivos() === 0; }, 8000, 'A limpeza dos filtros não foi confirmada.');
     }
 
+    function filtroSalvoPorNome(menu, nome) {
+        if (!menu) return null;
+        var alvo = clean(nome).toLocaleLowerCase('pt-BR');
+        if (typeof alvo.normalize === 'function') alvo = alvo.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        return Array.from(menu.querySelectorAll('.filtro-salvo')).find(function (filtro) {
+            var nomeEl = filtro.querySelector('.nome-filtro');
+            if (!nomeEl) return false;
+            var texto = clean(nomeEl.innerText).toLocaleLowerCase('pt-BR');
+            if (typeof texto.normalize === 'function') texto = texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            return texto === alvo;
+        }) || null;
+    }
+
+    function botaoFiltroSalvo(filtro) {
+        return filtro ? filtro.querySelector('button.btn.btn-tec') : null;
+    }
+
+    function botaoFiltroDesabilitado(botao) {
+        return !!botao && (botao.disabled || botao.hasAttribute('disabled'));
+    }
+
+    async function carregarFiltroPadrao() {
+        var abrir = visiveis('a.gerador-filtrador-cabecalho-carregar.link-limpo').find(function (n) {
+            return mesmoTexto(n.innerText, 'Carregar');
+        });
+        if (!abrir) throw new Error('O link "Carregar" dos filtros salvos não foi encontrado.');
+
+        var menu = document.querySelector('#sub-menu-filtros-salvos');
+        abrir.click();
+        // O trigger é Angular; em algumas cargas o click() do elemento não
+        // alcança a diretiva lateral, então repete como evento DOM borbulhante.
+        await workerSleep(100);
+        if (menu && !menu.classList.contains('show-menu-right')) {
+            abrir.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+        }
+
+        await esperar(function () {
+            var atual = document.querySelector('#sub-menu-filtros-salvos');
+            return !!atual && atual.classList.contains('show-menu-right') && !!filtroSalvoPorNome(atual, 'Padrao');
+        }, 10000, 'O menu de filtros salvos não abriu ou o filtro "Padrao" não apareceu.');
+
+        menu = document.querySelector('#sub-menu-filtros-salvos');
+        var filtro = filtroSalvoPorNome(menu, 'Padrao');
+        var botao = botaoFiltroSalvo(filtro);
+        if (!botao) throw new Error('O botão "Carregar" do filtro salvo "Padrao" não foi encontrado.');
+        await esperar(function () {
+            var atual = filtroSalvoPorNome(document.querySelector('#sub-menu-filtros-salvos'), 'Padrao');
+            var botaoAtual = botaoFiltroSalvo(atual) || botao;
+            return !!botaoAtual && !botaoFiltroDesabilitado(botaoAtual);
+        }, 5000, 'O filtro salvo "Padrao" permaneceu carregando e não ficou disponível.');
+
+        var ativosAntes = contarFiltrosAtivos();
+        var minimoFim = Date.now() + 650;
+        botao.click();
+        await esperar(function () {
+            var atual = filtroSalvoPorNome(document.querySelector('#sub-menu-filtros-salvos'), 'Padrao');
+            var botaoAtual = botaoFiltroSalvo(atual);
+            var carregando = botaoFiltroDesabilitado(botaoAtual);
+            var contagemMudou = contarFiltrosAtivos() !== ativosAntes;
+            return Date.now() >= minimoFim && !carregando && (contagemMudou || Date.now() >= minimoFim + 350);
+        }, 10000, 'O filtro salvo "Padrao" não terminou de carregar.');
+    }
+
     function lerContagem() {
         var el = document.querySelector('.gerador-filtrador strong.ng-binding');
         return el ? parseInt(clean(el.textContent).replace(/\D/g, ''), 10) || 0 : 0;
     }
 
     async function aplicarFiltros(materia, plano) {
-        await limparFiltros();
+        await carregarFiltroPadrao();
         // assuntos (folha de cada caminho)
         for (var i = 0; i < materia.subjectPaths.length; i += 1) {
             var folha = ultimoSegmento(materia.subjectPaths[i]);
             if (!folha) continue;
             UI.setStatus('Filtros: assunto "' + folha + '"');
             await selecionarValor('Matéria e assunto', folha);
-        }
-        // bancas
-        for (var b = 0; b < plano.banks.length; b += 1) {
-            UI.setStatus('Filtros: banca ' + plano.banks[b]);
-            await selecionarValor('Banca', plano.banks[b]);
-        }
-        // anos
-        for (var y = 0; y < plano.years.length; y += 1) {
-            UI.setStatus('Filtros: ano ' + plano.years[y]);
-            await selecionarValor('Ano', String(plano.years[y]));
-        }
-        // opções
-        if (plano.removeCancelled) {
-            var anuladas = visiveis("[role='button'].link-atalho").find(function (n) { return /Remover anuladas/i.test(n.innerText || ''); });
-            if (anuladas) { await pausaAleatoria(); anuladas.click(); await workerSleep(1200); }
-        }
-        if (plano.removeOutdated) {
-            var desatualizadas = visiveis("[role='button'].link-atalho").find(function (n) { return /Remover desatualizadas/i.test(n.innerText || ''); });
-            if (desatualizadas) { await pausaAleatoria(); desatualizadas.click(); await workerSleep(1200); }
         }
         // aguarda o contador estabilizar
         await esperar(function () { return lerContagem() > 0; }, CONFIG.filtroTimeout, 'Os filtros não retornaram questões.');

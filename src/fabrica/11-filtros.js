@@ -269,15 +269,22 @@
 
         // Clica no <a>, não no span interno, para evitar que o ng-click seja
         // disparado duas vezes.
+        var menu = document.querySelector('#sub-menu-filtros-salvos');
         abrir.click();
+        // Em algumas cargas o click() não alcança a diretiva lateral Angular;
+        // repete como evento DOM borbulhante somente se o menu não abriu.
+        await workerSleep(100);
+        if (menu && !menu.classList.contains('show-menu-right')) {
+            abrir.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+        }
 
         await esperar(function () {
-            var menu = document.querySelector('#sub-menu-filtros-salvos');
-            return !!menu && menu.classList.contains('show-menu-right') &&
-                !!filtroSalvoPorNome(menu, 'Padrao');
+            var atual = document.querySelector('#sub-menu-filtros-salvos');
+            return !!atual && atual.classList.contains('show-menu-right') &&
+                !!filtroSalvoPorNome(atual, 'Padrao');
         }, 10000, 'O menu de filtros salvos não abriu ou o filtro "Padrao" não apareceu.');
 
-        var menu = document.querySelector('#sub-menu-filtros-salvos');
+        menu = document.querySelector('#sub-menu-filtros-salvos');
         var filtro = filtroSalvoPorNome(menu, 'Padrao');
         var botao = botaoFiltroSalvo(filtro);
         if (!botao) {
