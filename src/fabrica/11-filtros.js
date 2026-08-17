@@ -260,6 +260,23 @@
         return !!botao && (botao.disabled || botao.hasAttribute('disabled'));
     }
 
+    function botaoOkFiltroVisivel() {
+        return Array.from(document.querySelectorAll('.ajs-button.ajs-ok')).find(function (botao) {
+            if (!botao || botao.disabled) return false;
+            var estilo = window.getComputedStyle(botao);
+            var retangulo = botao.getBoundingClientRect();
+            return estilo.display !== 'none' && estilo.visibility !== 'hidden' &&
+                estilo.opacity !== '0' && retangulo.width > 0 && retangulo.height > 0;
+        }) || null;
+    }
+
+    async function confirmarCarregamentoFiltro() {
+        await esperar(function () { return !!botaoOkFiltroVisivel(); }, 5000, 'A confirmação "OK" do filtro salvo não apareceu.');
+        var ok = botaoOkFiltroVisivel();
+        ok.click();
+        await esperar(function () { return !botaoOkFiltroVisivel(); }, 5000, 'A confirmação "OK" do filtro salvo não fechou.');
+    }
+
     async function carregarFiltroPadrao() {
         log('Tentando carregar o filtro salvo Padrao.', {
             tipo: 'tentativa', fase: 'filtros', contexto: { filtro: 'Padrao' }
@@ -316,6 +333,8 @@
             return Date.now() >= minimoFim && !carregando &&
                 (contagemMudou || Date.now() >= minimoFim + 350);
         }, 10000, 'O filtro salvo "Padrao" não terminou de carregar.');
+
+        await confirmarCarregamentoFiltro();
 
         log('Filtro salvo Padrao carregado; continuando apenas com a matéria.', {
             tipo: 'resultado', nivel: 'ok', fase: 'filtros',

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Tec Concursos — Fábrica de Cadernos
 // @namespace    tec-fabrica-cadernos-v2
-// @version      2.1.1
+// @version      2.1.2
 // @description  Cria cadernos em lote a partir de um plano de matérias (com bancas e anos), coleta cada questão com o gabarito oficial e exporta HTML interativo + Excel completos.
 // @author       voce
 // @match        https://www.tecconcursos.com.br/questoes/*
@@ -80,7 +80,7 @@
     if (location.hostname === 'www.tecconcursos.com.br' && !/^\/questoes(?:\/|$)/i.test(location.pathname)) return;
 
     // Versão do script — espelha @version no cabeçalho do userscript.
-    var SCRIPT_VERSION = '2.1.1';
+    var SCRIPT_VERSION = '2.1.2';
 
     // O gerenciador pode manter versões antigas instaladas em paralelo. Sem
     // este bloqueio, duas máquinas de estado clicam no mesmo filtro e uma
@@ -2894,6 +2894,23 @@
         return !!botao && (botao.disabled || botao.hasAttribute('disabled'));
     }
 
+    function botaoOkFiltroVisivel() {
+        return Array.from(document.querySelectorAll('.ajs-button.ajs-ok')).find(function (botao) {
+            if (!botao || botao.disabled) return false;
+            var estilo = window.getComputedStyle(botao);
+            var retangulo = botao.getBoundingClientRect();
+            return estilo.display !== 'none' && estilo.visibility !== 'hidden' &&
+                estilo.opacity !== '0' && retangulo.width > 0 && retangulo.height > 0;
+        }) || null;
+    }
+
+    async function confirmarCarregamentoFiltro() {
+        await esperar(function () { return !!botaoOkFiltroVisivel(); }, 5000, 'A confirmação "OK" do filtro salvo não apareceu.');
+        var ok = botaoOkFiltroVisivel();
+        ok.click();
+        await esperar(function () { return !botaoOkFiltroVisivel(); }, 5000, 'A confirmação "OK" do filtro salvo não fechou.');
+    }
+
     async function carregarFiltroPadrao() {
         log('Tentando carregar o filtro salvo Padrao.', {
             tipo: 'tentativa', fase: 'filtros', contexto: { filtro: 'Padrao' }
@@ -2950,6 +2967,8 @@
             return Date.now() >= minimoFim && !carregando &&
                 (contagemMudou || Date.now() >= minimoFim + 350);
         }, 10000, 'O filtro salvo "Padrao" não terminou de carregar.');
+
+        await confirmarCarregamentoFiltro();
 
         log('Filtro salvo Padrao carregado; continuando apenas com a matéria.', {
             tipo: 'resultado', nivel: 'ok', fase: 'filtros',

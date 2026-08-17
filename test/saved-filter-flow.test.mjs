@@ -11,6 +11,8 @@ test('filtro Padrao usa o menu desktop quando o site duplica o id para mobile', 
   assert.match(source, /pai\.offsetParent !== null/);
   assert.match(source, /nomeEl\.textContent/);
   assert.match(source, /menuFiltrosSalvosAberto\(\)/);
+  assert.match(source, /\.ajs-button\.ajs-ok/);
+  assert.match(source, /confirmarCarregamentoFiltro\(\)/);
 });
 
 test('filtro Padrao é carregado antes da matéria sem reaplicar banca e ano', () => {

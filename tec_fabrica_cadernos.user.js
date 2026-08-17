@@ -1063,6 +1063,23 @@
         return !!botao && (botao.disabled || botao.hasAttribute('disabled'));
     }
 
+    function botaoOkFiltroVisivel() {
+        return Array.from(document.querySelectorAll('.ajs-button.ajs-ok')).find(function (botao) {
+            if (!botao || botao.disabled) return false;
+            var estilo = window.getComputedStyle(botao);
+            var retangulo = botao.getBoundingClientRect();
+            return estilo.display !== 'none' && estilo.visibility !== 'hidden' &&
+                estilo.opacity !== '0' && retangulo.width > 0 && retangulo.height > 0;
+        }) || null;
+    }
+
+    async function confirmarCarregamentoFiltro() {
+        await esperar(function () { return !!botaoOkFiltroVisivel(); }, 5000, 'A confirmação "OK" do filtro salvo não apareceu.');
+        var ok = botaoOkFiltroVisivel();
+        ok.click();
+        await esperar(function () { return !botaoOkFiltroVisivel(); }, 5000, 'A confirmação "OK" do filtro salvo não fechou.');
+    }
+
     async function carregarFiltroPadrao() {
         var abrir = visiveis('a.gerador-filtrador-cabecalho-carregar.link-limpo').find(function (n) {
             return mesmoTexto(n.innerText, 'Carregar');
@@ -1095,6 +1112,8 @@
             var contagemMudou = contarFiltrosAtivos() !== ativosAntes;
             return Date.now() >= minimoFim && !carregando && (contagemMudou || Date.now() >= minimoFim + 350);
         }, 10000, 'O filtro salvo "Padrao" não terminou de carregar.');
+
+        await confirmarCarregamentoFiltro();
     }
 
     function lerContagem() {
