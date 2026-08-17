@@ -28,6 +28,12 @@
         return estado.cronometriaCriacao;
     }
 
+    function reiniciarCronometriaCriacao() {
+        var cron = cronometriaCriacao();
+        cron.amostras = [];
+        cron.atual = null;
+    }
+
     function marcarInicioCriacao() {
         if (!passadaCriacao()) return;
         var cron = cronometriaCriacao();
@@ -62,7 +68,10 @@
         var total = plano && Array.isArray(plano.matters) ? plano.matters.length : 0;
         var restantes = Math.max(0, total - Number(estado.planIndex || 0));
         var cron = cronometriaCriacao();
-        var amostras = Array.isArray(cron.amostras) ? cron.amostras : [];
+        // A execução pode ter sido retomada depois de uma alteração que
+        // reduziu o tempo por matéria; amostras antigas não devem dominar a ETA.
+        var amostrasTodas = Array.isArray(cron.amostras) ? cron.amostras : [];
+        var amostras = amostrasTodas.slice(-8);
         if (!amostras.length) {
             return { restantes: restantes, porMateriaMs: 0, totalMs: 0, fator: 1, temAmostras: false };
         }
@@ -593,6 +602,9 @@
             UI.renderProgresso();
             return;
         }
+        if (estado.status === 'erro' || estado.status === 'parado') {
+            reiniciarCronometriaCriacao();
+        }
         cancelarAutoResumir();
         cicloExecucaoId += 1;
         if (typeof Scheduler !== 'undefined' && typeof Scheduler.limpar === 'function') {
@@ -638,6 +650,9 @@
             log('Comando continuar recusado: falta plano ou configuração.', { tipo: 'decisao', nivel: 'warn', fase: 'nenhuma' });
             UI.setStatus('Carregue o plano e configure primeiro.');
             return;
+        }
+        if (estado.status === 'erro' || estado.status === 'parado') {
+            reiniciarCronometriaCriacao();
         }
         cancelarAutoResumir();
         cicloExecucaoId += 1;

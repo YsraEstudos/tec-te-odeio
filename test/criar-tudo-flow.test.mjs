@@ -153,6 +153,37 @@ test('estimativa restante: usa a média das amostras e escala pelo delay atual',
   assert.equal(vazio.estimarRestanteCriacao().temAmostras, false);
 });
 
+test('estimativa prioriza as oito amostras mais recentes', () => {
+  const antigas = Array.from({ length: 8 }, () => ({ ms: 120000, delayMin: 3000, delayMax: 3000 }));
+  const recentes = Array.from({ length: 8 }, () => ({ ms: 10000, delayMin: 3000, delayMax: 3000 }));
+  const contexto = vm.createContext({
+    estado: {
+      plano: { matters: Array.from({ length: 10 }, (_, i) => ({ title: 'M' + i })) },
+      config: { modoCriacao: 'criar-tudo' },
+      passada: 'criacao',
+      planIndex: 0,
+      cronometriaCriacao: { amostras: antigas.concat(recentes), atual: null }
+    },
+    CONFIG: { delayMin: 3000, delayMax: 3000 }
+  });
+  vm.runInContext(orchestratorSource, contexto);
+  assert.equal(contexto.estimarRestanteCriacao().porMateriaMs, 10000);
+});
+
+test('nova execução reinicia a cronometria antiga', () => {
+  const contexto = vm.createContext({
+    estado: {
+      config: { modoCriacao: 'criar-tudo' },
+      passada: 'criacao',
+      cronometriaCriacao: { amostras: [{ ms: 120000 }], atual: { planIndex: 4 } }
+    }
+  });
+  vm.runInContext(orchestratorSource, contexto);
+  contexto.reiniciarCronometriaCriacao();
+  assert.deepEqual(JSON.parse(JSON.stringify(contexto.estado.cronometriaCriacao)), { amostras: [], atual: null });
+  assert.match(orchestratorSource, /estado\.status === 'erro' \|\| estado\.status === 'parado'/);
+});
+
 test('aba execução mostra matérias restantes, controle de delay e estimativa', () => {
   assert.match(uiSource, /Faltam <b id="tf-restantes-exec">/);
   assert.match(uiSource, /id="tf-delay-exec"/);
