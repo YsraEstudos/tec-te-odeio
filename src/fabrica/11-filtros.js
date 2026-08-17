@@ -273,7 +273,8 @@
 
         await esperar(function () {
             var menu = document.querySelector('#sub-menu-filtros-salvos');
-            return !!menu && !!filtroSalvoPorNome(menu, 'Padrao');
+            return !!menu && menu.classList.contains('show-menu-right') &&
+                !!filtroSalvoPorNome(menu, 'Padrao');
         }, 10000, 'O menu de filtros salvos não abriu ou o filtro "Padrao" não apareceu.');
 
         var menu = document.querySelector('#sub-menu-filtros-salvos');
