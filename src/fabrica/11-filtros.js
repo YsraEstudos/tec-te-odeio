@@ -226,9 +226,21 @@
 
     function filtroSalvoPorNome(menu, nome) {
         if (!menu) return null;
+        var nomeNormalizado = clean(nome).toLocaleLowerCase('pt-BR');
+        if (typeof nomeNormalizado.normalize === 'function') {
+            nomeNormalizado = nomeNormalizado.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        }
         return Array.from(menu.querySelectorAll('.filtro-salvo')).find(function (filtro) {
             var nomeEl = filtro.querySelector('.nome-filtro');
-            return elementoVisivel(filtro) && nomeEl && mesmoTexto(nomeEl.innerText, nome);
+            if (!nomeEl) return false;
+            var texto = clean(nomeEl.innerText).toLocaleLowerCase('pt-BR');
+            if (typeof texto.normalize === 'function') {
+                texto = texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            }
+            // O menu lateral pode estar em position/transform e ainda assim
+            // ter offsetParent nulo. Aqui o Angular já garante a existência
+            // do item; não dependa de geometria para encontrá-lo.
+            return texto === nomeNormalizado;
         }) || null;
     }
 
@@ -261,7 +273,7 @@
 
         await esperar(function () {
             var menu = document.querySelector('#sub-menu-filtros-salvos');
-            return elementoVisivel(menu) && !!filtroSalvoPorNome(menu, 'Padrao');
+            return !!menu && !!filtroSalvoPorNome(menu, 'Padrao');
         }, 10000, 'O menu de filtros salvos não abriu ou o filtro "Padrao" não apareceu.');
 
         var menu = document.querySelector('#sub-menu-filtros-salvos');
@@ -277,7 +289,7 @@
         await esperar(function () {
             var atual = filtroSalvoPorNome(document.querySelector('#sub-menu-filtros-salvos'), 'Padrao');
             var botaoAtual = botaoFiltroSalvo(atual) || botao;
-            return elementoVisivel(botaoAtual) && !botaoFiltroDesabilitado(botaoAtual);
+            return !!botaoAtual && !botaoFiltroDesabilitado(botaoAtual);
         }, 5000, 'O filtro salvo "Padrao" permaneceu carregando e não ficou disponível.');
 
         var ativosAntes = contarFiltrosAtivos();
@@ -288,7 +300,6 @@
             var menuAtual = document.querySelector('#sub-menu-filtros-salvos');
             var filtroAtual = filtroSalvoPorNome(menuAtual, 'Padrao');
             var botaoAtual = botaoFiltroSalvo(filtroAtual);
-            var menuFechado = !menuAtual || !elementoVisivel(menuAtual);
             var contagemMudou = contarFiltrosAtivos() !== ativosAntes;
             var carregando = botaoFiltroDesabilitado(botaoAtual);
 
@@ -296,7 +307,7 @@
             // espera o disabled desaparecer e dá tempo para o digest/render
             // atualizar os filtros antes da matéria ser selecionada.
             return Date.now() >= minimoFim && !carregando &&
-                (menuFechado || contagemMudou || Date.now() >= minimoFim + 350);
+                (contagemMudou || Date.now() >= minimoFim + 350);
         }, 10000, 'O filtro salvo "Padrao" não terminou de carregar.');
 
         log('Filtro salvo Padrao carregado; continuando apenas com a matéria.', {
