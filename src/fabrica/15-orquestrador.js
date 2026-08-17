@@ -246,8 +246,8 @@
         irPara(url);
     }
 
-    function avancarMateria() {
-        if (passadaCriacao()) registrarCriacaoConcluida();
+    function avancarMateria(semCronometria) {
+        if (passadaCriacao() && !semCronometria) registrarCriacaoConcluida();
         estado.planIndex += 1;
         estado.cadernoAtual = null;
         estado.fase = 'nenhuma';
@@ -263,6 +263,38 @@
         } else {
             processarLote();
         }
+    }
+
+    function pularMateriaAtual(motivo) {
+        var plano = estado.plano;
+        var indice = Number(estado.planIndex);
+        var materia = plano && Array.isArray(plano.matters) ? plano.matters[indice] : null;
+        if (!materia || (motivo !== 'erro' && motivo !== 'criada-manualmente')) return false;
+
+        var estavaRodando = estado.status === 'rodando';
+        cicloExecucaoId += 1;
+        cancelarAutoResumir();
+        if (typeof Scheduler !== 'undefined' && typeof Scheduler.limpar === 'function') Scheduler.limpar();
+        if (!estado.materiasPuladas || typeof estado.materiasPuladas !== 'object') estado.materiasPuladas = {};
+        estado.materiasPuladas[String(indice)] = { motivo: motivo, titulo: materia.title, em: Date.now() };
+        if (estado.cronometriaCriacao && estado.cronometriaCriacao.atual &&
+            Number(estado.cronometriaCriacao.atual.planIndex) === indice) {
+            estado.cronometriaCriacao.atual = null;
+        }
+        estado.status = estavaRodando ? 'rodando' : 'pausado';
+        estado.pausaManual = !estavaRodando;
+        estado.erro = null;
+        estado.cadernoAtual = null;
+        estado.fase = 'nenhuma';
+        salvarEstado(true);
+        UI.renderBiblioteca();
+        UI.renderProgresso();
+        log('Matéria pulada pelo usuário.', {
+            tipo: 'decisao', nivel: 'warn', fase: 'nenhuma',
+            contexto: { planIndex: indice, materia: materia.title, motivo: motivo }
+        });
+        if (estavaRodando) avancarMateria(true);
+        return true;
     }
 
     function registrarCadernoCriadoNaRota(materia) {
@@ -302,6 +334,7 @@
     }
 
     async function processarLote() {
+        var meuCiclo = cicloExecucaoId;
         var plano = estado.plano;
         var config = estado.config;
         if (!plano || !config) {
@@ -321,6 +354,16 @@
             return;
         }
         if (estado.planIndex >= plano.matters.length) { terminarCompleto(); return; }
+
+        var pulada = estado.materiasPuladas && estado.materiasPuladas[String(estado.planIndex)];
+        if (pulada) {
+            log('Matéria já marcada como pulada; avançando.', {
+                tipo: 'decisao', nivel: 'warn', fase: estado.fase || 'nenhuma',
+                contexto: { planIndex: estado.planIndex, materia: plano.matters[estado.planIndex].title, motivo: pulada.motivo }
+            });
+            avancarMateria(true);
+            return;
+        }
 
         marcarInicioCriacao();
 
@@ -430,6 +473,7 @@
                 var link = encontrarLinkCadernoNaPasta(materia.title);
                 for (var tentativaPasta = 0; !link && tentativaPasta < 4; tentativaPasta += 1) {
                     await workerSleep(tentativaPasta === 0 ? 1200 : 1000);
+                    if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
                     link = encontrarLinkCadernoNaPasta(materia.title);
                 }
                 if (link) {
@@ -493,8 +537,10 @@
                 }
                 try {
                     await aguardarFiltrosProntos();
+                    if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
                     UI.setStatus('Aplicando filtros: ' + materia.title);
                     await aplicarFiltros(materia, plano);
+                    if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
                     var contagem = lerContagem();
                     if (!contagem) {
                         log('Decisão: filtros não retornaram questões; pulando matéria.', {
@@ -516,11 +562,13 @@
                     salvarEstado();
                     UI.setStatus(estado.mensagem);
                     await criarCaderno(materia, config); // clique → navega → próximo boot retoma em 'criando'
+                    if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
                     // O site pode mudar a rota por SPA sem recarregar o userscript.
                     // Nesse caso, processa imediatamente a fase 'criando' em vez
                     // de depender de um novo boot para registrar o caderno.
                     if (paginaAtual() === 'caderno') processarLote();
                 } catch (e) {
+                    if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
                     estado.status = 'erro';
                     estado.erro = String(e && e.message || e);
                     estado.fase = 'nenhuma';

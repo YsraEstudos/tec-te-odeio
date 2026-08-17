@@ -1,5 +1,5 @@
 {
-  "geradoEm": "2026-08-17T12:52:28.233Z",
+  "geradoEm": "2026-08-17T13:00:56.184Z",
   "ok": true,
   "achados": [],
   "verificacoes": [
@@ -24,7 +24,7 @@
     "ok: desativar restaura timers originais"
   ],
   "contadores": {
-    "iniciadoEm": 1786971148231,
+    "iniciadoEm": 1786971656182,
     "timers": {
       "setTimeout": 2,
       "setInterval": 1,
@@ -96,7 +96,7 @@
   },
   "amostras": [
     {
-      "t": 1786971148233,
+      "t": 1786971656183,
       "memoria": {
         "usado": 12582912,
         "total": 16777216,
@@ -110,7 +110,7 @@
       "salvarSnapshot": 0
     },
     {
-      "t": 1786971148233,
+      "t": 1786971656183,
       "memoria": {
         "usado": 12582912,
         "total": 16777216,

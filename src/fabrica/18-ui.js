@@ -177,8 +177,10 @@
         var ativo = estado.status === 'rodando' || estado.status === 'pausado';
         plano.matters.forEach(function (m, i) {
             var caderno = acharCadernoPorTitulo(m.title);
+            var pulada = estado.materiasPuladas && estado.materiasPuladas[String(i)];
             var tipo, rotulo;
-            if (i === estado.planIndex) { tipo = 'atual'; rotulo = ativo ? 'em execução' : 'próxima'; }
+            if (pulada) { tipo = 'pulada'; rotulo = 'pulada: ' + (pulada.motivo === 'erro' ? 'erro' : 'criada manualmente'); }
+            else if (i === estado.planIndex) { tipo = 'atual'; rotulo = ativo ? 'em execução' : 'próxima'; }
             else if (caderno && caderno.completo === true) { tipo = 'concluida'; rotulo = 'concluída'; }
             else if (caderno && Array.isArray(caderno.questoes) && caderno.questoes.length) { tipo = 'andamento'; rotulo = 'em andamento'; }
             else if (i < estado.planIndex) { tipo = 'processada'; rotulo = 'processada'; }
@@ -281,6 +283,7 @@
         var loteFim = estado.loteFim || (c ? Math.min(c.batchSize, total) : total);
         var lotePct = (loteFim - estado.loteInicio) > 0 ? Math.round((idx - estado.loteInicio) / (loteFim - estado.loteInicio) * 100) : 100;
         var materiaAtual = idx < total ? p.matters[idx].title : '—';
+        var puladas = estado.materiasPuladas && typeof estado.materiasPuladas === 'object' ? Object.keys(estado.materiasPuladas).length : 0;
         var cad = estado.cadernoAtual;
         var cadPct = 0, cadLabel = '';
         if (cad && cad.total) {
@@ -289,7 +292,13 @@
         }
         var faseTxt = { 'filtros': 'aplicando filtros', 'criando': 'criando caderno', 'coletando': 'copiando questões', 'nenhuma': '—' }[estado.fase] || estado.fase;
         var msgErro = estado.erro ? '<div class="tf-status-msg erro">' + escapeHtml(estado.erro) + '</div>' : '';
-        var msg = estado.mensagem ? '<div class="tf-status-msg">' + escapeHtml(estado.mensagem) + '</div>' : '';
+        var controlePulo = idx < total ? '<div class="tf-resumo" id="tf-pular-wrapper">Matérias puladas: <b>' + puladas + '</b> · ' +
+            '<button class="tf-btn sec" id="tf-pular-materia">Pular matéria</button>' +
+            '<span id="tf-pular-opcoes" hidden> Motivo: ' +
+            '<button class="tf-btn sec" data-pular-motivo="erro">Foi erro</button> ' +
+            '<button class="tf-btn sec" data-pular-motivo="criada-manualmente">Eu criei manualmente</button> ' +
+            '<button class="tf-btn" id="tf-pular-cancelar">Cancelar</button></span></div>' : '';
+        var msg = controlePulo + (estado.mensagem ? '<div class="tf-status-msg">' + escapeHtml(estado.mensagem) + '</div>' : '');
         var rodando = estado.status === 'rodando';
         var modoLabel = (c && (c.modoOperacao === 'stealth-offline' || c.modoColeta === 'stealth-offline')) ? '🛡️ Modo Furtivo Offline' : ((c && c.modoColeta === 'sem-gabarito-manual') ? '🖐️ Manual Offline' : '✍️ Com Resolução');
         var passadaLabel = (c && c.modoCriacao === 'criar-tudo')
@@ -499,6 +508,25 @@
         var btnParar = corpo.querySelector('#tf-parar');
         if (btnParar) btnParar.addEventListener('click', parar);
 
+        var pular = corpo.querySelector('#tf-pular-materia');
+        var opcoesPulo = corpo.querySelector('#tf-pular-opcoes');
+        if (pular && opcoesPulo) {
+            pular.addEventListener('click', function () {
+                pular.disabled = true;
+                opcoesPulo.hidden = false;
+            });
+            var cancelarPulo = opcoesPulo.querySelector('#tf-pular-cancelar');
+            if (cancelarPulo) cancelarPulo.addEventListener('click', function () {
+                pular.disabled = false;
+                opcoesPulo.hidden = true;
+            });
+            opcoesPulo.querySelectorAll('[data-pular-motivo]').forEach(function (botao) {
+                botao.addEventListener('click', function () {
+                    pularMateriaAtual(botao.getAttribute('data-pular-motivo'));
+                });
+            });
+        }
+
         var delayExec = corpo.querySelector('#tf-delay-exec');
         if (delayExec) {
             var aplicarDelayExec = function () {
@@ -666,6 +694,7 @@
         var plano = estado.plano;
         if (!plano || !Array.isArray(plano.matters) || !plano.matters[indice]) return;
         if (estado.status === 'rodando') parar();
+        if (estado.materiasPuladas) delete estado.materiasPuladas[String(indice)];
         estado.planIndex = indice;
         estado.fase = 'nenhuma';
         estado.cadernoAtual = null;

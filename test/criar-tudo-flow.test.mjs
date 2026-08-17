@@ -84,8 +84,10 @@ test('estado vazio e normalização preservam a cronometria de criação', () =>
 window.__persist = { estadoVazio, normalizarEstadoPersistido };`, context, { filename: '06-persistencia.js' });
   const { estadoVazio, normalizarEstadoPersistido } = context.window.__persist;
   assert.deepEqual(JSON.parse(JSON.stringify(estadoVazio().cronometriaCriacao)), { amostras: [], atual: null });
+  assert.deepEqual(JSON.parse(JSON.stringify(estadoVazio().materiasPuladas)), {});
   const legado = normalizarEstadoPersistido({ biblioteca: {}, config: {} });
   assert.deepEqual(JSON.parse(JSON.stringify(legado.cronometriaCriacao)), { amostras: [], atual: null });
+  assert.deepEqual(JSON.parse(JSON.stringify(legado.materiasPuladas)), {});
   const comAmostras = normalizarEstadoPersistido({ biblioteca: {}, config: {}, cronometriaCriacao: { amostras: [{ ms: 61000, delayMin: 3000, delayMax: 6000 }], atual: { planIndex: 1, inicio: 1, delayMin: 3000, delayMax: 6000 } } });
   assert.equal(comAmostras.cronometriaCriacao.amostras.length, 1);
   assert.equal(comAmostras.cronometriaCriacao.atual.planIndex, 1);
@@ -182,6 +184,16 @@ test('nova execução reinicia a cronometria antiga', () => {
   contexto.reiniciarCronometriaCriacao();
   assert.deepEqual(JSON.parse(JSON.stringify(contexto.estado.cronometriaCriacao)), { amostras: [], atual: null });
   assert.match(orchestratorSource, /estado\.status === 'erro' \|\| estado\.status === 'parado'/);
+});
+
+test('pulo de matéria persiste o motivo e cancela o ciclo atual', () => {
+  assert.match(orchestratorSource, /function pularMateriaAtual\(motivo\)/);
+  assert.match(orchestratorSource, /motivo: motivo/);
+  assert.match(orchestratorSource, /avancarMateria\(true\)/);
+  assert.match(orchestratorSource, /meuCiclo !== cicloExecucaoId/);
+  assert.match(uiSource, /id="tf-pular-materia"/);
+  assert.match(uiSource, /data-pular-motivo="erro"/);
+  assert.match(uiSource, /data-pular-motivo="criada-manualmente"/);
 });
 
 test('aba execução mostra matérias restantes, controle de delay e estimativa', () => {

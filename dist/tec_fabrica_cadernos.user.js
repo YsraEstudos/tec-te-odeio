@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Tec Concursos — Fábrica de Cadernos
 // @namespace    tec-fabrica-cadernos-v2
-// @version      2.1.3
+// @version      2.1.4
 // @description  Cria cadernos em lote a partir de um plano de matérias (com bancas e anos), coleta cada questão com o gabarito oficial e exporta HTML interativo + Excel completos.
 // @author       voce
 // @match        https://www.tecconcursos.com.br/questoes/*
@@ -80,7 +80,7 @@
     if (location.hostname === 'www.tecconcursos.com.br' && !/^\/questoes(?:\/|$)/i.test(location.pathname)) return;
 
     // Versão do script — espelha @version no cabeçalho do userscript.
-    var SCRIPT_VERSION = '2.1.3';
+    var SCRIPT_VERSION = '2.1.4';
 
     // O gerenciador pode manter versões antigas instaladas em paralelo. Sem
     // este bloqueio, duas máquinas de estado clicam no mesmo filtro e uma
@@ -1546,7 +1546,7 @@
             plano: null, planoTexto: '', config: null, status: 'parado', fase: 'nenhuma', modo: 'lote',
             passada: 'criacao',
             planIndex: 0, loteInicio: 0, loteFim: 0, cadernoAtual: null,
-            biblioteca: {}, logs: [], controleResolucoesDiarias: { data: null, total: 0 },
+            biblioteca: {}, materiasPuladas: {}, logs: [], controleResolucoesDiarias: { data: null, total: 0 },
             cronometriaCriacao: { amostras: [], atual: null },
             mensagem: '', erro: null, retomada: false, atualizadoEm: null
         };
@@ -1576,6 +1576,9 @@
         }
         if (valor.passada !== 'coleta') {
             valor.passada = 'criacao';
+        }
+        if (!valor.materiasPuladas || typeof valor.materiasPuladas !== 'object' || Array.isArray(valor.materiasPuladas)) {
+            valor.materiasPuladas = {};
         }
         if (typeof normalizarControleResolucoesDiarias === 'function') {
             normalizarControleResolucoesDiarias(valor);
@@ -3749,8 +3752,8 @@
         irPara(url);
     }
 
-    function avancarMateria() {
-        if (passadaCriacao()) registrarCriacaoConcluida();
+    function avancarMateria(semCronometria) {
+        if (passadaCriacao() && !semCronometria) registrarCriacaoConcluida();
         estado.planIndex += 1;
         estado.cadernoAtual = null;
         estado.fase = 'nenhuma';
@@ -3766,6 +3769,38 @@
         } else {
             processarLote();
         }
+    }
+
+    function pularMateriaAtual(motivo) {
+        var plano = estado.plano;
+        var indice = Number(estado.planIndex);
+        var materia = plano && Array.isArray(plano.matters) ? plano.matters[indice] : null;
+        if (!materia || (motivo !== 'erro' && motivo !== 'criada-manualmente')) return false;
+
+        var estavaRodando = estado.status === 'rodando';
+        cicloExecucaoId += 1;
+        cancelarAutoResumir();
+        if (typeof Scheduler !== 'undefined' && typeof Scheduler.limpar === 'function') Scheduler.limpar();
+        if (!estado.materiasPuladas || typeof estado.materiasPuladas !== 'object') estado.materiasPuladas = {};
+        estado.materiasPuladas[String(indice)] = { motivo: motivo, titulo: materia.title, em: Date.now() };
+        if (estado.cronometriaCriacao && estado.cronometriaCriacao.atual &&
+            Number(estado.cronometriaCriacao.atual.planIndex) === indice) {
+            estado.cronometriaCriacao.atual = null;
+        }
+        estado.status = estavaRodando ? 'rodando' : 'pausado';
+        estado.pausaManual = !estavaRodando;
+        estado.erro = null;
+        estado.cadernoAtual = null;
+        estado.fase = 'nenhuma';
+        salvarEstado(true);
+        UI.renderBiblioteca();
+        UI.renderProgresso();
+        log('Matéria pulada pelo usuário.', {
+            tipo: 'decisao', nivel: 'warn', fase: 'nenhuma',
+            contexto: { planIndex: indice, materia: materia.title, motivo: motivo }
+        });
+        if (estavaRodando) avancarMateria(true);
+        return true;
     }
 
     function registrarCadernoCriadoNaRota(materia) {
@@ -3805,6 +3840,7 @@
     }
 
     async function processarLote() {
+        var meuCiclo = cicloExecucaoId;
         var plano = estado.plano;
         var config = estado.config;
         if (!plano || !config) {
@@ -3824,6 +3860,16 @@
             return;
         }
         if (estado.planIndex >= plano.matters.length) { terminarCompleto(); return; }
+
+        var pulada = estado.materiasPuladas && estado.materiasPuladas[String(estado.planIndex)];
+        if (pulada) {
+            log('Matéria já marcada como pulada; avançando.', {
+                tipo: 'decisao', nivel: 'warn', fase: estado.fase || 'nenhuma',
+                contexto: { planIndex: estado.planIndex, materia: plano.matters[estado.planIndex].title, motivo: pulada.motivo }
+            });
+            avancarMateria(true);
+            return;
+        }
 
         marcarInicioCriacao();
 
@@ -3933,6 +3979,7 @@
                 var link = encontrarLinkCadernoNaPasta(materia.title);
                 for (var tentativaPasta = 0; !link && tentativaPasta < 4; tentativaPasta += 1) {
                     await workerSleep(tentativaPasta === 0 ? 1200 : 1000);
+                    if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
                     link = encontrarLinkCadernoNaPasta(materia.title);
                 }
                 if (link) {
@@ -3996,8 +4043,10 @@
                 }
                 try {
                     await aguardarFiltrosProntos();
+                    if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
                     UI.setStatus('Aplicando filtros: ' + materia.title);
                     await aplicarFiltros(materia, plano);
+                    if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
                     var contagem = lerContagem();
                     if (!contagem) {
                         log('Decisão: filtros não retornaram questões; pulando matéria.', {
@@ -4019,11 +4068,13 @@
                     salvarEstado();
                     UI.setStatus(estado.mensagem);
                     await criarCaderno(materia, config); // clique → navega → próximo boot retoma em 'criando'
+                    if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
                     // O site pode mudar a rota por SPA sem recarregar o userscript.
                     // Nesse caso, processa imediatamente a fase 'criando' em vez
                     // de depender de um novo boot para registrar o caderno.
                     if (paginaAtual() === 'caderno') processarLote();
                 } catch (e) {
+                    if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
                     estado.status = 'erro';
                     estado.erro = String(e && e.message || e);
                     estado.fase = 'nenhuma';
@@ -5291,8 +5342,10 @@
         var ativo = estado.status === 'rodando' || estado.status === 'pausado';
         plano.matters.forEach(function (m, i) {
             var caderno = acharCadernoPorTitulo(m.title);
+            var pulada = estado.materiasPuladas && estado.materiasPuladas[String(i)];
             var tipo, rotulo;
-            if (i === estado.planIndex) { tipo = 'atual'; rotulo = ativo ? 'em execução' : 'próxima'; }
+            if (pulada) { tipo = 'pulada'; rotulo = 'pulada: ' + (pulada.motivo === 'erro' ? 'erro' : 'criada manualmente'); }
+            else if (i === estado.planIndex) { tipo = 'atual'; rotulo = ativo ? 'em execução' : 'próxima'; }
             else if (caderno && caderno.completo === true) { tipo = 'concluida'; rotulo = 'concluída'; }
             else if (caderno && Array.isArray(caderno.questoes) && caderno.questoes.length) { tipo = 'andamento'; rotulo = 'em andamento'; }
             else if (i < estado.planIndex) { tipo = 'processada'; rotulo = 'processada'; }
@@ -5395,6 +5448,7 @@
         var loteFim = estado.loteFim || (c ? Math.min(c.batchSize, total) : total);
         var lotePct = (loteFim - estado.loteInicio) > 0 ? Math.round((idx - estado.loteInicio) / (loteFim - estado.loteInicio) * 100) : 100;
         var materiaAtual = idx < total ? p.matters[idx].title : '—';
+        var puladas = estado.materiasPuladas && typeof estado.materiasPuladas === 'object' ? Object.keys(estado.materiasPuladas).length : 0;
         var cad = estado.cadernoAtual;
         var cadPct = 0, cadLabel = '';
         if (cad && cad.total) {
@@ -5403,7 +5457,13 @@
         }
         var faseTxt = { 'filtros': 'aplicando filtros', 'criando': 'criando caderno', 'coletando': 'copiando questões', 'nenhuma': '—' }[estado.fase] || estado.fase;
         var msgErro = estado.erro ? '<div class="tf-status-msg erro">' + escapeHtml(estado.erro) + '</div>' : '';
-        var msg = estado.mensagem ? '<div class="tf-status-msg">' + escapeHtml(estado.mensagem) + '</div>' : '';
+        var controlePulo = idx < total ? '<div class="tf-resumo" id="tf-pular-wrapper">Matérias puladas: <b>' + puladas + '</b> · ' +
+            '<button class="tf-btn sec" id="tf-pular-materia">Pular matéria</button>' +
+            '<span id="tf-pular-opcoes" hidden> Motivo: ' +
+            '<button class="tf-btn sec" data-pular-motivo="erro">Foi erro</button> ' +
+            '<button class="tf-btn sec" data-pular-motivo="criada-manualmente">Eu criei manualmente</button> ' +
+            '<button class="tf-btn" id="tf-pular-cancelar">Cancelar</button></span></div>' : '';
+        var msg = controlePulo + (estado.mensagem ? '<div class="tf-status-msg">' + escapeHtml(estado.mensagem) + '</div>' : '');
         var rodando = estado.status === 'rodando';
         var modoLabel = (c && (c.modoOperacao === 'stealth-offline' || c.modoColeta === 'stealth-offline')) ? '🛡️ Modo Furtivo Offline' : ((c && c.modoColeta === 'sem-gabarito-manual') ? '🖐️ Manual Offline' : '✍️ Com Resolução');
         var passadaLabel = (c && c.modoCriacao === 'criar-tudo')
@@ -5613,6 +5673,25 @@
         var btnParar = corpo.querySelector('#tf-parar');
         if (btnParar) btnParar.addEventListener('click', parar);
 
+        var pular = corpo.querySelector('#tf-pular-materia');
+        var opcoesPulo = corpo.querySelector('#tf-pular-opcoes');
+        if (pular && opcoesPulo) {
+            pular.addEventListener('click', function () {
+                pular.disabled = true;
+                opcoesPulo.hidden = false;
+            });
+            var cancelarPulo = opcoesPulo.querySelector('#tf-pular-cancelar');
+            if (cancelarPulo) cancelarPulo.addEventListener('click', function () {
+                pular.disabled = false;
+                opcoesPulo.hidden = true;
+            });
+            opcoesPulo.querySelectorAll('[data-pular-motivo]').forEach(function (botao) {
+                botao.addEventListener('click', function () {
+                    pularMateriaAtual(botao.getAttribute('data-pular-motivo'));
+                });
+            });
+        }
+
         var delayExec = corpo.querySelector('#tf-delay-exec');
         if (delayExec) {
             var aplicarDelayExec = function () {
@@ -5780,6 +5859,7 @@
         var plano = estado.plano;
         if (!plano || !Array.isArray(plano.matters) || !plano.matters[indice]) return;
         if (estado.status === 'rodando') parar();
+        if (estado.materiasPuladas) delete estado.materiasPuladas[String(indice)];
         estado.planIndex = indice;
         estado.fase = 'nenhuma';
         estado.cadernoAtual = null;

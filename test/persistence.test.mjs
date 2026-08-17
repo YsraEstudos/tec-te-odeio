@@ -116,6 +116,7 @@ test('parser de migração aceita JSON v1 válido e rejeita inválido', () => {
     config: { modoColeta: 'com-gabarito', modoCriacao: 'padrao' },
     passada: 'criacao',
     logs: [],
+    materiasPuladas: {},
     cronometriaCriacao: { amostras: [], atual: null }
   });
   assert.equal(hooks.parseLegadoV1('{not-json'), null);
