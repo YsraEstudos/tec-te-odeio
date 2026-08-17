@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Tec Concursos — Fábrica de Cadernos
 // @namespace    tec-fabrica-cadernos-v2
-// @version      2.1.0
+// @version      2.1.1
 // @description  Cria cadernos em lote a partir de um plano de matérias (com bancas e anos), coleta cada questão com o gabarito oficial e exporta HTML interativo + Excel completos.
 // @author       voce
 // @match        https://www.tecconcursos.com.br/questoes/*
@@ -80,7 +80,7 @@
     if (location.hostname === 'www.tecconcursos.com.br' && !/^\/questoes(?:\/|$)/i.test(location.pathname)) return;
 
     // Versão do script — espelha @version no cabeçalho do userscript.
-    var SCRIPT_VERSION = '2.1.0';
+    var SCRIPT_VERSION = '2.1.1';
 
     // O gerenciador pode manter versões antigas instaladas em paralelo. Sem
     // este bloqueio, duas máquinas de estado clicam no mesmo filtro e uma
@@ -2867,7 +2867,7 @@
         return Array.from(menu.querySelectorAll('.filtro-salvo')).find(function (filtro) {
             var nomeEl = filtro.querySelector('.nome-filtro');
             if (!nomeEl) return false;
-            var texto = clean(nomeEl.innerText).toLocaleLowerCase('pt-BR');
+            var texto = clean(nomeEl.textContent).toLocaleLowerCase('pt-BR');
             if (typeof texto.normalize === 'function') {
                 texto = texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
             }
@@ -2875,6 +2875,14 @@
             // ter offsetParent nulo. Aqui o Angular já garante a existência
             // do item; não dependa de geometria para encontrá-lo.
             return texto === nomeNormalizado;
+        }) || null;
+    }
+
+    function menuFiltrosSalvosAberto() {
+        return Array.from(document.querySelectorAll('#sub-menu-filtros-salvos')).find(function (menu) {
+            var pai = menu.parentElement;
+            return menu.classList.contains('show-menu-right') &&
+                (!pai || pai.offsetParent !== null) && !!filtroSalvoPorNome(menu, 'Padrao');
         }) || null;
     }
 
@@ -2903,22 +2911,13 @@
 
         // Clica no <a>, não no span interno, para evitar que o ng-click seja
         // disparado duas vezes.
-        var menu = document.querySelector('#sub-menu-filtros-salvos');
         abrir.click();
-        // Em algumas cargas o click() não alcança a diretiva lateral Angular;
-        // repete como evento DOM borbulhante somente se o menu não abriu.
-        await workerSleep(100);
-        if (menu && !menu.classList.contains('show-menu-right')) {
-            abrir.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-        }
 
         await esperar(function () {
-            var atual = document.querySelector('#sub-menu-filtros-salvos');
-            return !!atual && atual.classList.contains('show-menu-right') &&
-                !!filtroSalvoPorNome(atual, 'Padrao');
+            return !!menuFiltrosSalvosAberto();
         }, 10000, 'O menu de filtros salvos não abriu ou o filtro "Padrao" não apareceu.');
 
-        menu = document.querySelector('#sub-menu-filtros-salvos');
+        var menu = menuFiltrosSalvosAberto();
         var filtro = filtroSalvoPorNome(menu, 'Padrao');
         var botao = botaoFiltroSalvo(filtro);
         if (!botao) {
@@ -2929,7 +2928,7 @@
         }
 
         await esperar(function () {
-            var atual = filtroSalvoPorNome(document.querySelector('#sub-menu-filtros-salvos'), 'Padrao');
+            var atual = filtroSalvoPorNome(menuFiltrosSalvosAberto() || menu, 'Padrao');
             var botaoAtual = botaoFiltroSalvo(atual) || botao;
             return !!botaoAtual && !botaoFiltroDesabilitado(botaoAtual);
         }, 5000, 'O filtro salvo "Padrao" permaneceu carregando e não ficou disponível.');
@@ -2939,7 +2938,7 @@
         botao.click();
 
         await esperar(function () {
-            var menuAtual = document.querySelector('#sub-menu-filtros-salvos');
+            var menuAtual = menuFiltrosSalvosAberto() || menu;
             var filtroAtual = filtroSalvoPorNome(menuAtual, 'Padrao');
             var botaoAtual = botaoFiltroSalvo(filtroAtual);
             var contagemMudou = contarFiltrosAtivos() !== ativosAntes;

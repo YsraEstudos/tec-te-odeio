@@ -1041,9 +1041,17 @@
         return Array.from(menu.querySelectorAll('.filtro-salvo')).find(function (filtro) {
             var nomeEl = filtro.querySelector('.nome-filtro');
             if (!nomeEl) return false;
-            var texto = clean(nomeEl.innerText).toLocaleLowerCase('pt-BR');
+            var texto = clean(nomeEl.textContent).toLocaleLowerCase('pt-BR');
             if (typeof texto.normalize === 'function') texto = texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
             return texto === alvo;
+        }) || null;
+    }
+
+    function menuFiltrosSalvosAberto() {
+        return Array.from(document.querySelectorAll('#sub-menu-filtros-salvos')).find(function (menu) {
+            var pai = menu.parentElement;
+            return menu.classList.contains('show-menu-right') &&
+                (!pai || pai.offsetParent !== null) && !!filtroSalvoPorNome(menu, 'Padrao');
         }) || null;
     }
 
@@ -1061,26 +1069,18 @@
         });
         if (!abrir) throw new Error('O link "Carregar" dos filtros salvos não foi encontrado.');
 
-        var menu = document.querySelector('#sub-menu-filtros-salvos');
         abrir.click();
-        // O trigger é Angular; em algumas cargas o click() do elemento não
-        // alcança a diretiva lateral, então repete como evento DOM borbulhante.
-        await workerSleep(100);
-        if (menu && !menu.classList.contains('show-menu-right')) {
-            abrir.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-        }
 
         await esperar(function () {
-            var atual = document.querySelector('#sub-menu-filtros-salvos');
-            return !!atual && atual.classList.contains('show-menu-right') && !!filtroSalvoPorNome(atual, 'Padrao');
+            return !!menuFiltrosSalvosAberto();
         }, 10000, 'O menu de filtros salvos não abriu ou o filtro "Padrao" não apareceu.');
 
-        menu = document.querySelector('#sub-menu-filtros-salvos');
+        var menu = menuFiltrosSalvosAberto();
         var filtro = filtroSalvoPorNome(menu, 'Padrao');
         var botao = botaoFiltroSalvo(filtro);
         if (!botao) throw new Error('O botão "Carregar" do filtro salvo "Padrao" não foi encontrado.');
         await esperar(function () {
-            var atual = filtroSalvoPorNome(document.querySelector('#sub-menu-filtros-salvos'), 'Padrao');
+            var atual = filtroSalvoPorNome(menuFiltrosSalvosAberto() || menu, 'Padrao');
             var botaoAtual = botaoFiltroSalvo(atual) || botao;
             return !!botaoAtual && !botaoFiltroDesabilitado(botaoAtual);
         }, 5000, 'O filtro salvo "Padrao" permaneceu carregando e não ficou disponível.');
@@ -1089,7 +1089,7 @@
         var minimoFim = Date.now() + 650;
         botao.click();
         await esperar(function () {
-            var atual = filtroSalvoPorNome(document.querySelector('#sub-menu-filtros-salvos'), 'Padrao');
+            var atual = filtroSalvoPorNome(menuFiltrosSalvosAberto() || menu, 'Padrao');
             var botaoAtual = botaoFiltroSalvo(atual);
             var carregando = botaoFiltroDesabilitado(botaoAtual);
             var contagemMudou = contarFiltrosAtivos() !== ativosAntes;
