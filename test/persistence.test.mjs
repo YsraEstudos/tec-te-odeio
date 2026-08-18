@@ -117,6 +117,8 @@ test('parser de migração aceita JSON v1 válido e rejeita inválido', () => {
     passada: 'criacao',
     logs: [],
     materiasPuladas: {},
+    reparoCriacao: null,
+    reparoCriacaoConcluido: false,
     cronometriaCriacao: { amostras: [], atual: null }
   });
   assert.equal(hooks.parseLegadoV1('{not-json'), null);

@@ -82,6 +82,7 @@
             planIndex: 0, loteInicio: 0, loteFim: 0, cadernoAtual: null,
             biblioteca: {}, materiasPuladas: {}, logs: [], controleResolucoesDiarias: { data: null, total: 0 },
             cronometriaCriacao: { amostras: [], atual: null },
+            reparoCriacao: null, reparoCriacaoConcluido: false,
             mensagem: '', erro: null, retomada: false, atualizadoEm: null
         };
     }
@@ -113,6 +114,11 @@
         }
         if (!valor.materiasPuladas || typeof valor.materiasPuladas !== 'object' || Array.isArray(valor.materiasPuladas)) {
             valor.materiasPuladas = {};
+        }
+        if (typeof valor.reparoCriacaoConcluido !== 'boolean') valor.reparoCriacaoConcluido = false;
+        if (!valor.reparoCriacao || typeof valor.reparoCriacao !== 'object' ||
+            !Array.isArray(valor.reparoCriacao.indices) || !Number.isFinite(Number(valor.reparoCriacao.posicao))) {
+            valor.reparoCriacao = null;
         }
         if (typeof normalizarControleResolucoesDiarias === 'function') {
             normalizarControleResolucoesDiarias(valor);

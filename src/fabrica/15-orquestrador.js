@@ -20,6 +20,50 @@
         return modoCriarTudoAtivo() && estado.passada !== 'coleta';
     }
 
+    var TITULOS_REPARO_ANTES_COLETA = [
+        'ITIL 4',
+        'Lean',
+        'Docker Compose',
+        'ELK — Elasticsearch, Logstash e Kibana'
+    ];
+
+    function reparoCriacaoAtivo() {
+        return !!(estado.reparoCriacao && Array.isArray(estado.reparoCriacao.indices));
+    }
+
+    function iniciarReparoAntesColeta() {
+        if (estado.reparoCriacaoConcluido || reparoCriacaoAtivo()) return reparoCriacaoAtivo();
+        var plano = estado.plano || { matters: [] };
+        var indices = TITULOS_REPARO_ANTES_COLETA.map(function (titulo) {
+            return plano.matters.findIndex(function (materia) {
+                return normalizarTituloCaderno(materia.title) === normalizarTituloCaderno(titulo);
+            });
+        }).filter(function (indice) { return indice >= 0; });
+        if (!indices.length) {
+            estado.reparoCriacaoConcluido = true;
+            return false;
+        }
+        indices.forEach(function (indice) {
+            if (estado.materiasPuladas) delete estado.materiasPuladas[String(indice)];
+        });
+        estado.reparoCriacao = { indices: indices, posicao: 0 };
+        estado.passada = 'criacao';
+        estado.planIndex = indices[0];
+        estado.loteInicio = indices[0];
+        estado.loteFim = plano.matters.length;
+        estado.cadernoAtual = null;
+        estado.fase = 'nenhuma';
+        estado.mensagem = 'Criando os quatro cadernos pendentes antes da coleta...';
+        salvarEstado(true);
+        UI.renderProgresso();
+        log('Reparo de criação iniciado antes da coleta.', {
+            tipo: 'decisao', nivel: 'warn', fase: 'nenhuma',
+            contexto: { titulos: TITULOS_REPARO_ANTES_COLETA, indices: indices }
+        });
+        processarLote();
+        return true;
+    }
+
     /* ---- cronometria da passada de criação ---- */
     function cronometriaCriacao() {
         if (!estado.cronometriaCriacao || typeof estado.cronometriaCriacao !== 'object') {
@@ -90,6 +134,7 @@
     }
 
     function iniciarPassadaColeta() {
+        if (iniciarReparoAntesColeta()) return;
         var plano = estado.plano || { matters: [] };
         var config = estado.config || {};
         estado.passada = 'coleta';
@@ -248,6 +293,29 @@
 
     function avancarMateria(semCronometria) {
         if (passadaCriacao() && !semCronometria) registrarCriacaoConcluida();
+        if (reparoCriacaoAtivo()) {
+            estado.reparoCriacao.posicao += 1;
+            estado.cadernoAtual = null;
+            estado.fase = 'nenhuma';
+            if (estado.reparoCriacao.posicao >= estado.reparoCriacao.indices.length) {
+                estado.reparoCriacao = null;
+                estado.reparoCriacaoConcluido = true;
+                salvarEstado(true);
+                log('Reparo de criação concluído; coleta liberada.', {
+                    tipo: 'resultado', nivel: 'ok', fase: 'nenhuma',
+                    contexto: { titulos: TITULOS_REPARO_ANTES_COLETA }
+                });
+                iniciarPassadaColeta();
+                return;
+            }
+            estado.planIndex = estado.reparoCriacao.indices[estado.reparoCriacao.posicao];
+            estado.loteInicio = estado.planIndex;
+            salvarEstado(true);
+            UI.renderBiblioteca();
+            UI.renderProgresso();
+            processarLote();
+            return;
+        }
         estado.planIndex += 1;
         estado.cadernoAtual = null;
         estado.fase = 'nenhuma';
@@ -349,6 +417,8 @@
             });
             return;
         }
+        if (modoCriarTudoAtivo() && estado.passada === 'coleta' &&
+            !estado.reparoCriacaoConcluido && iniciarReparoAntesColeta()) return;
         if (passadaCriacao() && estado.planIndex >= plano.matters.length) {
             iniciarPassadaColeta();
             return;

@@ -7,7 +7,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const manifestPath = resolve(root, 'src/fabrica/manifest.json');
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
 const version = manifest.version;
-if (version !== '2.1.8') throw new Error(`versão inesperada: ${version}`);
+if (version !== '2.1.9') throw new Error(`versão inesperada: ${version}`);
 if (!Array.isArray(manifest.fragments) || manifest.fragments.length === 0) {
   throw new Error('manifest sem fragmentos');
 }

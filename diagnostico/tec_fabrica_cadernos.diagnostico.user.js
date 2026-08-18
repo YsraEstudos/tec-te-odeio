@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Tec Concursos — Fábrica de Cadernos
 // @namespace    tec-fabrica-cadernos-v2
-// @version      2.1.8
+// @version      2.1.9
 // @description  Cria cadernos em lote a partir de um plano de matérias (com bancas e anos), coleta cada questão com o gabarito oficial e exporta HTML interativo + Excel completos.
 // @author       voce
 // @match        https://www.tecconcursos.com.br/questoes/*
@@ -80,7 +80,7 @@
     if (location.hostname === 'www.tecconcursos.com.br' && !/^\/questoes(?:\/|$)/i.test(location.pathname)) return;
 
     // Versão do script — espelha @version no cabeçalho do userscript.
-    var SCRIPT_VERSION = '2.1.8';
+    var SCRIPT_VERSION = '2.1.9';
 
     // O gerenciador pode manter versões antigas instaladas em paralelo. Sem
     // este bloqueio, duas máquinas de estado clicam no mesmo filtro e uma
@@ -1548,6 +1548,7 @@
             planIndex: 0, loteInicio: 0, loteFim: 0, cadernoAtual: null,
             biblioteca: {}, materiasPuladas: {}, logs: [], controleResolucoesDiarias: { data: null, total: 0 },
             cronometriaCriacao: { amostras: [], atual: null },
+            reparoCriacao: null, reparoCriacaoConcluido: false,
             mensagem: '', erro: null, retomada: false, atualizadoEm: null
         };
     }
@@ -1579,6 +1580,11 @@
         }
         if (!valor.materiasPuladas || typeof valor.materiasPuladas !== 'object' || Array.isArray(valor.materiasPuladas)) {
             valor.materiasPuladas = {};
+        }
+        if (typeof valor.reparoCriacaoConcluido !== 'boolean') valor.reparoCriacaoConcluido = false;
+        if (!valor.reparoCriacao || typeof valor.reparoCriacao !== 'object' ||
+            !Array.isArray(valor.reparoCriacao.indices) || !Number.isFinite(Number(valor.reparoCriacao.posicao))) {
+            valor.reparoCriacao = null;
         }
         if (typeof normalizarControleResolucoesDiarias === 'function') {
             normalizarControleResolucoesDiarias(valor);
@@ -3593,6 +3599,50 @@
         return modoCriarTudoAtivo() && estado.passada !== 'coleta';
     }
 
+    var TITULOS_REPARO_ANTES_COLETA = [
+        'ITIL 4',
+        'Lean',
+        'Docker Compose',
+        'ELK — Elasticsearch, Logstash e Kibana'
+    ];
+
+    function reparoCriacaoAtivo() {
+        return !!(estado.reparoCriacao && Array.isArray(estado.reparoCriacao.indices));
+    }
+
+    function iniciarReparoAntesColeta() {
+        if (estado.reparoCriacaoConcluido || reparoCriacaoAtivo()) return reparoCriacaoAtivo();
+        var plano = estado.plano || { matters: [] };
+        var indices = TITULOS_REPARO_ANTES_COLETA.map(function (titulo) {
+            return plano.matters.findIndex(function (materia) {
+                return normalizarTituloCaderno(materia.title) === normalizarTituloCaderno(titulo);
+            });
+        }).filter(function (indice) { return indice >= 0; });
+        if (!indices.length) {
+            estado.reparoCriacaoConcluido = true;
+            return false;
+        }
+        indices.forEach(function (indice) {
+            if (estado.materiasPuladas) delete estado.materiasPuladas[String(indice)];
+        });
+        estado.reparoCriacao = { indices: indices, posicao: 0 };
+        estado.passada = 'criacao';
+        estado.planIndex = indices[0];
+        estado.loteInicio = indices[0];
+        estado.loteFim = plano.matters.length;
+        estado.cadernoAtual = null;
+        estado.fase = 'nenhuma';
+        estado.mensagem = 'Criando os quatro cadernos pendentes antes da coleta...';
+        salvarEstado(true);
+        UI.renderProgresso();
+        log('Reparo de criação iniciado antes da coleta.', {
+            tipo: 'decisao', nivel: 'warn', fase: 'nenhuma',
+            contexto: { titulos: TITULOS_REPARO_ANTES_COLETA, indices: indices }
+        });
+        processarLote();
+        return true;
+    }
+
     /* ---- cronometria da passada de criação ---- */
     function cronometriaCriacao() {
         if (!estado.cronometriaCriacao || typeof estado.cronometriaCriacao !== 'object') {
@@ -3663,6 +3713,7 @@
     }
 
     function iniciarPassadaColeta() {
+        if (iniciarReparoAntesColeta()) return;
         var plano = estado.plano || { matters: [] };
         var config = estado.config || {};
         estado.passada = 'coleta';
@@ -3821,6 +3872,29 @@
 
     function avancarMateria(semCronometria) {
         if (passadaCriacao() && !semCronometria) registrarCriacaoConcluida();
+        if (reparoCriacaoAtivo()) {
+            estado.reparoCriacao.posicao += 1;
+            estado.cadernoAtual = null;
+            estado.fase = 'nenhuma';
+            if (estado.reparoCriacao.posicao >= estado.reparoCriacao.indices.length) {
+                estado.reparoCriacao = null;
+                estado.reparoCriacaoConcluido = true;
+                salvarEstado(true);
+                log('Reparo de criação concluído; coleta liberada.', {
+                    tipo: 'resultado', nivel: 'ok', fase: 'nenhuma',
+                    contexto: { titulos: TITULOS_REPARO_ANTES_COLETA }
+                });
+                iniciarPassadaColeta();
+                return;
+            }
+            estado.planIndex = estado.reparoCriacao.indices[estado.reparoCriacao.posicao];
+            estado.loteInicio = estado.planIndex;
+            salvarEstado(true);
+            UI.renderBiblioteca();
+            UI.renderProgresso();
+            processarLote();
+            return;
+        }
         estado.planIndex += 1;
         estado.cadernoAtual = null;
         estado.fase = 'nenhuma';
@@ -3922,6 +3996,8 @@
             });
             return;
         }
+        if (modoCriarTudoAtivo() && estado.passada === 'coleta' &&
+            !estado.reparoCriacaoConcluido && iniciarReparoAntesColeta()) return;
         if (passadaCriacao() && estado.planIndex >= plano.matters.length) {
             iniciarPassadaColeta();
             return;
@@ -5220,6 +5296,8 @@
             var plano = normalizar(textoColado);
             estado.planoTexto = String(textoColado == null ? '' : textoColado);
             estado.plano = plano;
+            estado.reparoCriacao = null;
+            estado.reparoCriacaoConcluido = false;
             return plano;
         },
         agruparPorCategoria: agruparPorCategoria,

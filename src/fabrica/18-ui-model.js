@@ -147,6 +147,8 @@
             var plano = normalizar(textoColado);
             estado.planoTexto = String(textoColado == null ? '' : textoColado);
             estado.plano = plano;
+            estado.reparoCriacao = null;
+            estado.reparoCriacaoConcluido = false;
             return plano;
         },
         agruparPorCategoria: agruparPorCategoria,

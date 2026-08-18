@@ -34,6 +34,11 @@ test('só substitui o plano depois que a normalização termina', () => {
   assert.equal(anterior.plano, novo);
 });
 
+test('carregar plano reinicia o reparo anterior à coleta', () => {
+  assert.match(source, /estado\.reparoCriacao = null;/);
+  assert.match(source, /estado\.reparoCriacaoConcluido = false;/);
+});
+
 test('agrupa matérias por categoria e cria níveis deduplicados de submatérias', () => {
   const model = loadModel();
   const categorias = model.agruparPorCategoria({ matters: [

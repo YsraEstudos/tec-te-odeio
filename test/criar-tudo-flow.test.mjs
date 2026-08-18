@@ -263,3 +263,19 @@ test('transição de passada reinicia o plano para a coleta', () => {
   assert.equal(contexto.estado.loteFim, 3);
   assert.equal(contexto.chamouProcessar, true);
 });
+
+test('reparo cria somente os quatro cadernos pendentes antes da coleta', () => {
+  assert.match(orchestratorSource, /var TITULOS_REPARO_ANTES_COLETA = \[\s*'ITIL 4',\s*'Lean',\s*'Docker Compose',\s*'ELK — Elasticsearch, Logstash e Kibana'\s*\]/);
+  assert.match(orchestratorSource, /function iniciarPassadaColeta\(\) \{\s*if \(iniciarReparoAntesColeta\(\)\) return;/);
+  assert.match(orchestratorSource, /estado\.passada === 'coleta' &&\s*!estado\.reparoCriacaoConcluido && iniciarReparoAntesColeta\(\)/);
+  assert.match(orchestratorSource, /delete estado\.materiasPuladas\[String\(indice\)\]/);
+});
+
+test('reparo percorre sua fila e só então libera a coleta', () => {
+  const avancarInicio = orchestratorSource.indexOf('function avancarMateria');
+  const avancar = orchestratorSource.slice(avancarInicio, orchestratorSource.indexOf('function pularMateriaAtual'));
+  assert.match(avancar, /if \(reparoCriacaoAtivo\(\)\)/);
+  assert.match(avancar, /estado\.planIndex = estado\.reparoCriacao\.indices\[estado\.reparoCriacao\.posicao\]/);
+  assert.match(avancar, /estado\.reparoCriacaoConcluido = true;/);
+  assert.ok(avancar.indexOf('if (reparoCriacaoAtivo())') < avancar.indexOf('estado.planIndex += 1'));
+});
