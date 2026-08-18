@@ -38,3 +38,17 @@ test('assunto com parêntese aberto aceita o nome completo exibido pelo site', (
   vm.runInNewContext(`${source}\nresult = itemCorresponde(item, 'Sistemas Distribuídos (Cluster, GRID');`, context);
   assert.equal(context.result, true);
 });
+
+test('assunto abreviado sem etc aceita o sufixo completo exibido pelo site', () => {
+  const context = {
+    clean: (value) => String(value == null ? '' : value).replace(/\s+/g, ' ').trim(),
+    mesmoTexto: (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase(),
+    item: {
+      classList: { contains: () => false },
+      querySelector: () => ({ textContent: 'EXT2, EXT3, XFS, etc.' }),
+      getAttribute: () => 'EXT2, EXT3, XFS, etc.'
+    }
+  };
+  vm.runInNewContext(`${source}\nresult = itemCorresponde(item, 'EXT2, EXT3, XFS');`, context);
+  assert.equal(context.result, true);
+});

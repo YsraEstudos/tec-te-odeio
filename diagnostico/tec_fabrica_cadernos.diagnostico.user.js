@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Tec Concursos — Fábrica de Cadernos
 // @namespace    tec-fabrica-cadernos-v2
-// @version      2.1.5
+// @version      2.1.6
 // @description  Cria cadernos em lote a partir de um plano de matérias (com bancas e anos), coleta cada questão com o gabarito oficial e exporta HTML interativo + Excel completos.
 // @author       voce
 // @match        https://www.tecconcursos.com.br/questoes/*
@@ -80,7 +80,7 @@
     if (location.hostname === 'www.tecconcursos.com.br' && !/^\/questoes(?:\/|$)/i.test(location.pathname)) return;
 
     // Versão do script — espelha @version no cabeçalho do userscript.
-    var SCRIPT_VERSION = '2.1.5';
+    var SCRIPT_VERSION = '2.1.6';
 
     // O gerenciador pode manter versões antigas instaladas em paralelo. Sem
     // este bloqueio, duas máquinas de estado clicam no mesmo filtro e uma
@@ -2712,17 +2712,20 @@
         return abertos > fechados;
     }
 
-    function textoCorrespondeAParentesisAberto(candidato, texto) {
-        if (!textoTemParentesisAberto(texto)) return false;
-        return normalizarTextoFiltro(candidato).indexOf(normalizarTextoFiltro(texto)) === 0;
+    function textoCorrespondeAAbreviacao(candidato, texto) {
+        var rotulo = normalizarTextoFiltro(candidato);
+        var alvo = normalizarTextoFiltro(texto);
+        if (rotulo.indexOf(alvo) !== 0) return false;
+        if (textoTemParentesisAberto(texto)) return true;
+        return /^,\s*etc\.?\)?$/.test(rotulo.slice(alvo.length).trim());
     }
 
     function itemCorresponde(item, texto) {
         var rotulo = rotuloItemArvore(item);
         var titulo = item && item.getAttribute('title');
         return mesmoTexto(rotulo, texto) || mesmoTexto(titulo, texto) ||
-            textoCorrespondeAParentesisAberto(rotulo, texto) ||
-            textoCorrespondeAParentesisAberto(titulo, texto);
+            textoCorrespondeAAbreviacao(rotulo, texto) ||
+            textoCorrespondeAAbreviacao(titulo, texto);
     }
 
     function itemDaArvore(box, texto) {

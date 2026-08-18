@@ -75,17 +75,20 @@
         return abertos > fechados;
     }
 
-    function textoCorrespondeAParentesisAberto(candidato, texto) {
-        if (!textoTemParentesisAberto(texto)) return false;
-        return normalizarTextoFiltro(candidato).indexOf(normalizarTextoFiltro(texto)) === 0;
+    function textoCorrespondeAAbreviacao(candidato, texto) {
+        var rotulo = normalizarTextoFiltro(candidato);
+        var alvo = normalizarTextoFiltro(texto);
+        if (rotulo.indexOf(alvo) !== 0) return false;
+        if (textoTemParentesisAberto(texto)) return true;
+        return /^,\s*etc\.?\)?$/.test(rotulo.slice(alvo.length).trim());
     }
 
     function itemCorresponde(item, texto) {
         var rotulo = rotuloItemArvore(item);
         var titulo = item && item.getAttribute('title');
         return mesmoTexto(rotulo, texto) || mesmoTexto(titulo, texto) ||
-            textoCorrespondeAParentesisAberto(rotulo, texto) ||
-            textoCorrespondeAParentesisAberto(titulo, texto);
+            textoCorrespondeAAbreviacao(rotulo, texto) ||
+            textoCorrespondeAAbreviacao(titulo, texto);
     }
 
     function itemDaArvore(box, texto) {
