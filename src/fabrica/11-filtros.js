@@ -106,6 +106,11 @@
         })[0] || null;
     }
 
+    function itemAtualDaAba(titulo, texto) {
+        var box = boxDaAba(titulo);
+        return { box: box, item: box ? itemDaArvore(box, texto) : null };
+    }
+
     function itemSelecionavelDaPasta(pasta, texto) {
         var descendentes = itensArvore().filter(function (n) {
             return n !== pasta && pasta.contains(n);
@@ -157,7 +162,10 @@
             }
             await pausaAleatoria();
             (anoItem.querySelector('.arvore-item-conteudo') || anoItem).click();
-            await esperar(function () { return itemSelecionado(box, valor); }, 6000, 'Seleção do ano ' + valor + ' não confirmada.');
+            await esperar(function () {
+                var atual = boxDaAba(titulo);
+                return !!atual && itemSelecionado(atual, valor);
+            }, 6000, 'Seleção do ano ' + valor + ' não confirmada.');
             log('Valor de filtro selecionado.', {
                 tipo: 'resultado', nivel: 'ok', fase: 'filtros', contexto: { aba: titulo, valor: valor }
             });
@@ -166,8 +174,14 @@
         // Demais abas: busca por nome
         var link = Array.from(box.querySelectorAll('a')).find(function (a) { return clean(a.innerText) === 'Pesquisar por nome'; });
         if (link) { link.click(); await workerSleep(600); }
-        var search = box.querySelector("input[ng-model='vm.textoBusca']");
-        if (!search) {
+        var search = null;
+        try {
+            await esperar(function () {
+                box = boxDaAba(titulo);
+                search = box && box.querySelector("input[ng-model='vm.textoBusca']");
+                return !!search;
+            }, 5000, '');
+        } catch (e) {
             log('Campo de busca do filtro não encontrado.', {
                 tipo: 'erro', nivel: 'erro', fase: 'filtros', contexto: { aba: titulo }
             });
@@ -177,10 +191,18 @@
         var item = null;
         var candidatoAchado = null;
         for (var i = 0; i < candidatos.length && !item; i += 1) {
+            box = boxDaAba(titulo);
+            search = box && box.querySelector("input[ng-model='vm.textoBusca']");
+            if (!search) continue;
             setInput(search, candidatos[i]);
             try {
-                await esperar(function () { return !!itemDaArvore(box, candidatos[i]); }, 3500, '');
-                item = itemDaArvore(box, candidatos[i]);
+                var encontrado = null;
+                await esperar(function () {
+                    encontrado = itemAtualDaAba(titulo, candidatos[i]);
+                    return !!encontrado.item;
+                }, CONFIG.filtroTimeout || 15000, '');
+                box = encontrado.box;
+                item = encontrado.item;
                 candidatoAchado = candidatos[i];
             } catch (e) { item = null; }
         }
@@ -192,12 +214,22 @@
         }
         await pausaAleatoria();
         // Pastas não são selecionáveis: abre a pasta e usa "Todo o conteúdo".
+        box = boxDaAba(titulo);
         item = await itemSelecionavel(box, candidatoAchado);
-        // a lista pode ter sido re-renderizada pelo Angular após a busca: re-obtém o nó fresco
-        if (!item || !item.isConnected) item = await itemSelecionavel(box, candidatoAchado) || item;
+        // A busca Angular pode substituir tanto o item quanto o buscador inteiro.
+        if (!item || !item.isConnected || box !== boxDaAba(titulo)) {
+            box = boxDaAba(titulo);
+            item = await itemSelecionavel(box, candidatoAchado) || item;
+        }
+        if (!item || !item.isConnected) {
+            throw new Error('O resultado de "' + valor + '" foi substituído durante a busca.');
+        }
         (item.querySelector('.arvore-item-conteudo') || item).click();
         try {
-            await esperar(function () { return itemSelecionado(box, candidatoAchado); }, 2500, '');
+            await esperar(function () {
+                var atual = boxDaAba(titulo);
+                return !!atual && itemSelecionado(atual, candidatoAchado);
+            }, 2500, '');
             log('Valor de filtro selecionado.', {
                 tipo: 'resultado', nivel: 'ok', fase: 'filtros', contexto: { aba: titulo, valor: valor, candidato: candidatoAchado }
             });
@@ -205,7 +237,8 @@
         } catch (e) {
             // fallback Angular (mesmo do projeto): dispara vm.notificarClick no escopo do item
             await workerSleep(400);
-            if (!item || !item.isConnected) item = await itemSelecionavel(box, candidatoAchado) || item;
+            box = boxDaAba(titulo);
+            item = await itemSelecionavel(box, candidatoAchado) || item;
             var clickable = item.querySelector('.arvore-item-conteudo') || item;
             var angEl = angular.element(clickable);
             var scope = angEl && ((typeof angEl.isolateScope === 'function' && angEl.isolateScope()) || (typeof angEl.scope === 'function' && angEl.scope()));
@@ -214,7 +247,10 @@
                 if (scope.$root && scope.$root.$$phase) notify();
                 else if (typeof scope.$apply === 'function') scope.$apply(notify);
                 else notify();
-                await esperar(function () { return itemSelecionado(box, candidatoAchado); }, 6000, 'O TecConcursos ignorou a seleção de "' + valor + '".');
+                await esperar(function () {
+                    var atual = boxDaAba(titulo);
+                    return !!atual && itemSelecionado(atual, candidatoAchado);
+                }, 6000, 'O TecConcursos ignorou a seleção de "' + valor + '".');
                 log('Valor de filtro selecionado pelo fallback Angular.', {
                     tipo: 'resultado', nivel: 'ok', fase: 'filtros', contexto: { aba: titulo, valor: valor, candidato: candidatoAchado, metodo: 'angular-fallback' }
                 });

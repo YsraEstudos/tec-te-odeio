@@ -72,3 +72,45 @@ test('árvore aceita item no DOM quando offsetParent é nulo', () => {
   vm.runInNewContext(`${source}\nresult = itemDaArvore(box, 'ICMP') === item;`, context);
   assert.equal(context.result, true);
 });
+
+test('busca usa o contêiner Angular atual após re-renderização', () => {
+  const item = {
+    hidden: false,
+    disabled: false,
+    className: 'arvore-item arvore-item-selecionar-tudo',
+    classList: { contains: (name) => name === 'arvore-item-selecionar-tudo' },
+    querySelector: () => ({ textContent: 'Protocolo IP' }),
+    getAttribute: () => 'TI - Redes de Computadores: Protocolo IP'
+  };
+  const antigo = {
+    getAttribute: () => 'Matérias',
+    contains: () => false
+  };
+  const atual = {
+    getAttribute: () => 'Matérias',
+    contains: (node) => node === item
+  };
+  const context = {
+    clean: (value) => String(value == null ? '' : value).replace(/\s+/g, ' ').trim(),
+    mesmoTexto: (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase(),
+    document: { querySelectorAll: (selector) => selector === '.arvore-item' ? [item] : [] },
+    visiveis: (selector) => selector === '.gerador-buscador' ? [context.boxAtual] : [],
+    boxAtual: antigo
+  };
+  vm.runInNewContext(source, context);
+  context.boxAtual = atual;
+  vm.runInNewContext("result = itemAtualDaAba('Matéria e assunto', 'Protocolo IP');", context);
+  assert.equal(context.result.box, atual);
+  assert.equal(context.result.item, item);
+});
+
+test('seleção reconsulta buscador e confirmação após atualizações Angular', () => {
+  const selecionarInicio = source.indexOf('async function selecionarValor');
+  const selecionar = source.slice(selecionarInicio, source.indexOf('function contarFiltrosAtivos'));
+  assert.match(selecionar, /itemAtualDaAba\(titulo, candidatos\[i\]\)/);
+  assert.match(selecionar, /box !== boxDaAba\(titulo\)/);
+  assert.ok((selecionar.match(/boxDaAba\(titulo\)/g) || []).length >= 6);
+  assert.match(selecionar, /CONFIG\.filtroTimeout \|\| 15000/);
+  assert.match(selecionar, /search = box && box\.querySelector/);
+  assert.match(selecionar, /resultado de .* foi substituído durante a busca/);
+});
