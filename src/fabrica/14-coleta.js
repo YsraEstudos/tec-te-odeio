@@ -87,7 +87,13 @@
         while (true) {
             if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
             var inicioQuestao = Date.now();
-            var questao = extrairQuestaoAtual();
+            var idQuestaoAtual = lerQuestaoIdAtual();
+            var posicaoAtual = lerPosicao();
+            var existente = idQuestaoAtual ? (questoesPorId.get(String(idQuestaoAtual)) || null) : null;
+            var questao = existente && posicaoAtual && posicaoAtual.posicao ? {
+                id: String(idQuestaoAtual),
+                number: posicaoAtual.posicao
+            } : extrairQuestaoAtual();
             if (!questao || !questao.id || !questao.number) {
                 log('Extração inicial sem questão; aguardando o DOM e tentando novamente.', {
                     tipo: 'tentativa', nivel: 'warn', fase: 'coletando',
@@ -108,9 +114,21 @@
             }
 
             var modoStealth = estado.config && (estado.config.modoOperacao === 'stealth-offline' || estado.config.modoColeta === 'stealth-offline');
-            var existente = porId.has(String(questao.id)) ? questoesPorId.get(String(questao.id)) : null;
+            existente = existente || questoesPorId.get(String(questao.id)) || null;
 
-            if (modoStealth) {
+            if (existente) {
+                UI.setStatus('Questão #' + questao.id + ' já coletada; avançando...');
+                log('Questão já existe na biblioteca; coleta duplicada ignorada.', {
+                    tipo: 'decisao', nivel: 'ok', fase: 'coletando',
+                    contexto: {
+                        cadernoId: caderno.id,
+                        questaoId: questao.id,
+                        numero: questao.number,
+                        nesteCaderno: porId.has(String(questao.id)),
+                        salvas: colecao.length
+                    }
+                });
+            } else if (modoStealth) {
                 // ================= MODO STEALTH OFFLINE (ZERO RESOLUÇÃO / ZERO COTA) =================
                 var doCacheStealth = mapearGabaritoParaOpcoes(GabaritoInterceptor.obterPorQuestaoId(questao.id), questao.options || []);
                 var resVisivelStealth = document.querySelector('.questao-enunciado-resolucao-errou, .questao-enunciado-resolucao-acertou');
@@ -118,21 +136,11 @@
                 var gabaritoStealth = doCacheStealth || gvStealth || '';
                 var answerSourceStealth = doCacheStealth ? 'interceptacao-passiva' : (gvStealth ? 'resolucao-visivel' : 'offline-passivo');
 
-                if (existente) {
-                    if (!existente.answer && gabaritoStealth) {
-                        existente.answer = gabaritoStealth;
-                        existente.answerSource = answerSourceStealth;
-                    }
-                    if (!existente.statementHtml) existente.statementHtml = questao.statementHtml;
-                    if (!existente.statement) existente.statement = questao.statement;
-                    if (!existente.options.length) existente.options = questao.options;
-                } else {
-                    questao.answer = gabaritoStealth;
-                    questao.answerSource = answerSourceStealth;
-                    colecao.push(questao);
-                    porId.add(String(questao.id));
-                    questoesPorId.set(String(questao.id), questao);
-                }
+                questao.answer = gabaritoStealth;
+                questao.answerSource = answerSourceStealth;
+                colecao.push(questao);
+                porId.add(String(questao.id));
+                questoesPorId.set(String(questao.id), questao);
 
                 caderno.questoes = colecao;
                 caderno.coletadas = colecao.length;
@@ -209,7 +217,7 @@
                     }
                     if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
                 }
-            } else if (!existente || !existente.answer) {
+            } else {
                 // ================= MODO PADRÃO COM GABARITO / RESOLUÇÃO =================
                 UI.setStatus('Coletando questão ' + questao.number + '/' + (caderno.total || '?') + '...');
                 log('Tentando obter o gabarito da questão.', {
@@ -231,20 +239,11 @@
                 }
 
                 var answerSource = GabaritoInterceptor.ultimoMetodo || 'resolucao';
-                if (existente) {
-                    // atualiza apenas o que faltava (gabarito retentado)
-                    existente.answer = gabarito;
-                    existente.answerSource = answerSource;
-                    if (!existente.statementHtml) existente.statementHtml = questao.statementHtml;
-                    if (!existente.statement) existente.statement = questao.statement;
-                    if (!existente.options.length) existente.options = questao.options;
-                } else {
-                    questao.answer = gabarito;
-                    questao.answerSource = answerSource;
-                    colecao.push(questao);
-                    porId.add(String(questao.id));
-                    questoesPorId.set(String(questao.id), questao);
-                }
+                questao.answer = gabarito;
+                questao.answerSource = answerSource;
+                colecao.push(questao);
+                porId.add(String(questao.id));
+                questoesPorId.set(String(questao.id), questao);
                 caderno.questoes = colecao;
                 caderno.coletadas = colecao.length;
                 salvarEstado(true);
@@ -261,11 +260,6 @@
                         salvas: colecao.length,
                         duracaoMs: Date.now() - inicioQuestao
                     }
-                });
-            } else {
-                log('Questão já salva; pulando nova resolução.', {
-                    tipo: 'decisao', nivel: 'ok', fase: 'coletando',
-                    contexto: { cadernoId: caderno.id, questaoId: questao.id, numero: questao.number, answerSource: existente.answerSource || 'desconhecido', salvas: colecao.length }
                 });
             }
 

@@ -31,6 +31,25 @@ function loadPaginas(texto) {
   return resultado && { posicao: resultado.posicao, total: resultado.total };
 }
 
+function loadQuestaoId({ href, textoLink, titulo }) {
+  const window = {};
+  const link = href || textoLink ? {
+    href,
+    textContent: textoLink || '',
+    getAttribute: (nome) => nome === 'href' ? href : null,
+  } : null;
+  const document = {
+    querySelector(selector) {
+      if (selector === "a.id-questao[href*='/questoes/']") return link;
+      if (selector === 'h1') return titulo == null ? null : { textContent: titulo };
+      return null;
+    },
+  };
+  const context = { window, document, location: { pathname: '', search: '' }, estado: {}, CONFIG: {}, log() {}, console };
+  vm.runInNewContext(`${paginasSource}\nwindow.__questaoIdTest = { lerQuestaoIdAtual };`, context, { filename: '07-paginas.js' });
+  return window.__questaoIdTest.lerQuestaoIdAtual();
+}
+
 function loadFolderHelpers(links) {
   const window = {};
   const context = {
@@ -61,6 +80,58 @@ test('retomada encontra caderno ignorando caixa e acentos no título', () => {
   assert.match(orquestradorSource, /function normalizarTituloCaderno\(titulo\)/);
   assert.match(orquestradorSource, /normalizarTituloCaderno\(b\.titulo\) === alvo/);
   assert.match(orquestradorSource, /existente\.totalConfirmado === true/);
+});
+
+test('identifica a questão pelo link id-questao antes do texto do h1', () => {
+  assert.equal(loadQuestaoId({
+    href: 'https://www.tecconcursos.com.br/questoes/3815580',
+    textoLink: '#3815580',
+    titulo: '#9999999',
+  }), '3815580');
+  assert.equal(loadQuestaoId({ titulo: '#3815581 FCC - 2025' }), '3815581');
+});
+
+test('coleta consulta o índice global antes de extrair e ignora IDs existentes', () => {
+  const consulta = coletaSource.indexOf('questoesPorId.get(String(idQuestaoAtual))');
+  const extracao = coletaSource.indexOf(': extrairQuestaoAtual();');
+  const pulo = coletaSource.indexOf("if (existente) {");
+  const resolucao = coletaSource.indexOf('resolverParaGabarito(questao)');
+  assert.ok(consulta >= 0 && consulta < extracao);
+  assert.ok(pulo >= 0 && pulo < resolucao);
+  assert.match(coletaSource, /Questão já existe na biblioteca; coleta duplicada ignorada/);
+});
+
+test('questão existente na biblioteca não é extraída nem resolvida novamente', async () => {
+  const window = {};
+  let extracoes = 0;
+  let resolucoes = 0;
+  const caderno = { id: 'caderno-novo', titulo: 'Novo', total: 1, questoes: [] };
+  const context = {
+    window,
+    CONFIG: { loadTimeout: 1000 },
+    estado: { status: 'rodando', config: { modoColeta: 'stealth-offline' } },
+    cicloExecucaoId: 0,
+    questoesPorId: new Map([['3815580', { id: '3815580', statement: 'já salva' }]]),
+    questaoIdsPorCaderno: new Map([['caderno-novo', new Set()]]),
+    indexarEstado() {},
+    log() {},
+    UI: { setStatus() {}, renderBiblioteca() {}, renderProgresso() {} },
+    workerTick(intervalo, verificar, timeout, concluir) { concluir(true); },
+    lerQuestaoIdAtual: () => '3815580',
+    lerPosicao: () => ({ posicao: 1, total: 1 }),
+    extrairQuestaoAtual() { extracoes += 1; return null; },
+    resolverParaGabarito: async () => { resolucoes += 1; return 'A'; },
+    salvarEstado() {},
+    console,
+  };
+  vm.runInNewContext(`${coletaSource}\nwindow.__coletaDuplicadaTest = { coletarCaderno };`, context, { filename: '14-coleta.js' });
+
+  await window.__coletaDuplicadaTest.coletarCaderno(caderno);
+
+  assert.equal(extracoes, 0);
+  assert.equal(resolucoes, 0);
+  assert.equal(caderno.questoes.length, 0);
+  assert.equal(caderno.completo, true);
 });
 
 test('pasta usa a linha Angular do caderno e não depende de offsetParent', () => {

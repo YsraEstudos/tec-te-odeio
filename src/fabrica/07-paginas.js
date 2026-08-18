@@ -114,8 +114,16 @@
     }
 
     function lerQuestaoIdAtual() {
+        var link = document.querySelector("a.id-questao[href*='/questoes/']");
+        if (link) {
+            var href = link.getAttribute ? link.getAttribute('href') : link.href;
+            var idLink = String(href || '').match(/\/questoes\/(\d+)/);
+            if (idLink) return idLink[1];
+            var idTexto = String(link.textContent || '').match(/#(\d+)/);
+            if (idTexto) return idTexto[1];
+        }
         var h1 = document.querySelector('h1');
-        return h1 ? (h1.textContent.match(/#(\d+)/) || [])[1] : null;
+        return h1 ? ((h1.textContent || '').match(/#(\d+)/) || [])[1] : null;
     }
 
     function questaoConteudoPronta() {
