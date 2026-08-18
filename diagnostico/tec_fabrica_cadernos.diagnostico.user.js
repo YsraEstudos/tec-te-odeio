@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Tec Concursos — Fábrica de Cadernos
 // @namespace    tec-fabrica-cadernos-v2
-// @version      2.1.6
+// @version      2.1.7
 // @description  Cria cadernos em lote a partir de um plano de matérias (com bancas e anos), coleta cada questão com o gabarito oficial e exporta HTML interativo + Excel completos.
 // @author       voce
 // @match        https://www.tecconcursos.com.br/questoes/*
@@ -80,7 +80,7 @@
     if (location.hostname === 'www.tecconcursos.com.br' && !/^\/questoes(?:\/|$)/i.test(location.pathname)) return;
 
     // Versão do script — espelha @version no cabeçalho do userscript.
-    var SCRIPT_VERSION = '2.1.6';
+    var SCRIPT_VERSION = '2.1.7';
 
     // O gerenciador pode manter versões antigas instaladas em paralelo. Sem
     // este bloqueio, duas máquinas de estado clicam no mesmo filtro e uma
@@ -2693,6 +2693,13 @@
         return !!item && item.classList.contains('arvore-item-pasta');
     }
 
+    function itensArvore(box) {
+        return Array.from(document.querySelectorAll('.arvore-item')).filter(function (item) {
+            return (!box || box.contains(item)) && !item.hidden && !item.disabled &&
+                !/ng-hide/.test(String(item.className || ''));
+        });
+    }
+
     function rotuloItemArvore(item) {
         var nome = item && item.querySelector('.arvore-item-conteudo .arvore-item-nome');
         return clean(nome ? nome.textContent : (item && item.innerText));
@@ -2729,15 +2736,15 @@
     }
 
     function itemDaArvore(box, texto) {
-        return visiveis('.arvore-item').filter(function (n) {
-            return (!box || box.contains(n)) && itemCorresponde(n, texto);
+        return itensArvore(box).filter(function (n) {
+            return itemCorresponde(n, texto);
         }).sort(function (a, b) {
             return Number(itemEhPasta(a)) - Number(itemEhPasta(b));
         })[0] || null;
     }
 
     function itemSelecionavelDaPasta(pasta, texto) {
-        var descendentes = visiveis('.arvore-item').filter(function (n) {
+        var descendentes = itensArvore().filter(function (n) {
             return n !== pasta && pasta.contains(n);
         });
         return descendentes.find(function (n) {
@@ -2764,8 +2771,8 @@
     }
 
     function itemSelecionado(box, texto) {
-        return visiveis('.arvore-item').some(function (n) {
-            return box.contains(n) && n.classList.contains('arvore-item-selecionado') &&
+        return itensArvore(box).some(function (n) {
+            return n.classList.contains('arvore-item-selecionado') &&
                 (itemCorresponde(n, texto) || (n.classList.contains('arvore-item-selecionar-tudo') &&
                     clean(n.getAttribute('title')).toLocaleLowerCase('pt-BR').indexOf(clean(texto).toLocaleLowerCase('pt-BR')) >= 0));
         });

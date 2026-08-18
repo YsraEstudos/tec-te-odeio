@@ -52,3 +52,23 @@ test('assunto abreviado sem etc aceita o sufixo completo exibido pelo site', () 
   vm.runInNewContext(`${source}\nresult = itemCorresponde(item, 'EXT2, EXT3, XFS');`, context);
   assert.equal(context.result, true);
 });
+
+test('árvore aceita item no DOM quando offsetParent é nulo', () => {
+  const item = {
+    hidden: false,
+    disabled: false,
+    className: 'arvore-item',
+    classList: { contains: () => false },
+    querySelector: () => ({ textContent: 'ICMP' }),
+    getAttribute: () => 'TI - Redes de Computadores: ICMP'
+  };
+  const context = {
+    clean: (value) => String(value == null ? '' : value).replace(/\s+/g, ' ').trim(),
+    mesmoTexto: (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase(),
+    document: { querySelectorAll: () => [item] },
+    item,
+    box: { contains: () => true }
+  };
+  vm.runInNewContext(`${source}\nresult = itemDaArvore(box, 'ICMP') === item;`, context);
+  assert.equal(context.result, true);
+});

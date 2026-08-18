@@ -56,6 +56,13 @@
         return !!item && item.classList.contains('arvore-item-pasta');
     }
 
+    function itensArvore(box) {
+        return Array.from(document.querySelectorAll('.arvore-item')).filter(function (item) {
+            return (!box || box.contains(item)) && !item.hidden && !item.disabled &&
+                !/ng-hide/.test(String(item.className || ''));
+        });
+    }
+
     function rotuloItemArvore(item) {
         var nome = item && item.querySelector('.arvore-item-conteudo .arvore-item-nome');
         return clean(nome ? nome.textContent : (item && item.innerText));
@@ -92,15 +99,15 @@
     }
 
     function itemDaArvore(box, texto) {
-        return visiveis('.arvore-item').filter(function (n) {
-            return (!box || box.contains(n)) && itemCorresponde(n, texto);
+        return itensArvore(box).filter(function (n) {
+            return itemCorresponde(n, texto);
         }).sort(function (a, b) {
             return Number(itemEhPasta(a)) - Number(itemEhPasta(b));
         })[0] || null;
     }
 
     function itemSelecionavelDaPasta(pasta, texto) {
-        var descendentes = visiveis('.arvore-item').filter(function (n) {
+        var descendentes = itensArvore().filter(function (n) {
             return n !== pasta && pasta.contains(n);
         });
         return descendentes.find(function (n) {
@@ -127,8 +134,8 @@
     }
 
     function itemSelecionado(box, texto) {
-        return visiveis('.arvore-item').some(function (n) {
-            return box.contains(n) && n.classList.contains('arvore-item-selecionado') &&
+        return itensArvore(box).some(function (n) {
+            return n.classList.contains('arvore-item-selecionado') &&
                 (itemCorresponde(n, texto) || (n.classList.contains('arvore-item-selecionar-tudo') &&
                     clean(n.getAttribute('title')).toLocaleLowerCase('pt-BR').indexOf(clean(texto).toLocaleLowerCase('pt-BR')) >= 0));
         });
