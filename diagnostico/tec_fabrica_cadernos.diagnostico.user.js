@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Tec Concursos — Fábrica de Cadernos
 // @namespace    tec-fabrica-cadernos-v2
-// @version      2.1.4
+// @version      2.1.5
 // @description  Cria cadernos em lote a partir de um plano de matérias (com bancas e anos), coleta cada questão com o gabarito oficial e exporta HTML interativo + Excel completos.
 // @author       voce
 // @match        https://www.tecconcursos.com.br/questoes/*
@@ -80,7 +80,7 @@
     if (location.hostname === 'www.tecconcursos.com.br' && !/^\/questoes(?:\/|$)/i.test(location.pathname)) return;
 
     // Versão do script — espelha @version no cabeçalho do userscript.
-    var SCRIPT_VERSION = '2.1.4';
+    var SCRIPT_VERSION = '2.1.5';
 
     // O gerenciador pode manter versões antigas instaladas em paralelo. Sem
     // este bloqueio, duas máquinas de estado clicam no mesmo filtro e uma
@@ -2698,10 +2698,31 @@
         return clean(nome ? nome.textContent : (item && item.innerText));
     }
 
+    function normalizarTextoFiltro(valor) {
+        var texto = clean(valor).toLocaleLowerCase('pt-BR');
+        return typeof texto.normalize === 'function'
+            ? texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            : texto;
+    }
+
+    function textoTemParentesisAberto(valor) {
+        var texto = clean(valor);
+        var abertos = (texto.match(/\(/g) || []).length;
+        var fechados = (texto.match(/\)/g) || []).length;
+        return abertos > fechados;
+    }
+
+    function textoCorrespondeAParentesisAberto(candidato, texto) {
+        if (!textoTemParentesisAberto(texto)) return false;
+        return normalizarTextoFiltro(candidato).indexOf(normalizarTextoFiltro(texto)) === 0;
+    }
+
     function itemCorresponde(item, texto) {
         var rotulo = rotuloItemArvore(item);
         var titulo = item && item.getAttribute('title');
-        return mesmoTexto(rotulo, texto) || mesmoTexto(titulo, texto);
+        return mesmoTexto(rotulo, texto) || mesmoTexto(titulo, texto) ||
+            textoCorrespondeAParentesisAberto(rotulo, texto) ||
+            textoCorrespondeAParentesisAberto(titulo, texto);
     }
 
     function itemDaArvore(box, texto) {

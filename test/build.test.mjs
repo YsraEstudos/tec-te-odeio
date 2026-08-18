@@ -15,8 +15,8 @@ test('build gera artefato válido e APIs globais', () => {
   assert.ok(existsSync(cleanInstall));
   const source = readFileSync(dist, 'utf8');
   assert.equal(readFileSync(cleanInstall, 'utf8'), source);
-  assert.match(source, /^\/\/ @version\s+2\.1\.4$/m);
-  assert.match(source, /var SCRIPT_VERSION = '2\.1\.4';/);
+  assert.match(source, /^\/\/ @version\s+2\.1\.5$/m);
+  assert.match(source, /var SCRIPT_VERSION = '2\.1\.5';/);
   assert.match(source, /^\/\/ @namespace\s+tec-fabrica-cadernos-v2$/m);
   for (const api of ['__TecFabrica', '__TecFabricaExport', '__TecFabricaUI']) {
     assert.match(source, new RegExp(`window\\.${api}\\s*=`));

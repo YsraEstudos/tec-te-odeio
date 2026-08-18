@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -22,4 +23,18 @@ test('filtro Padrao é carregado antes da matéria sem reaplicar banca e ano', (
   assert.ok(aplicar.indexOf('await carregarFiltroPadrao();') < aplicar.indexOf("await selecionarValor('Matéria e assunto', folha);"));
   assert.doesNotMatch(aplicar, /selecionarValor\('Banca'/);
   assert.doesNotMatch(aplicar, /selecionarValor\('Ano'/);
+});
+
+test('assunto com parêntese aberto aceita o nome completo exibido pelo site', () => {
+  const context = {
+    clean: (value) => String(value == null ? '' : value).replace(/\s+/g, ' ').trim(),
+    mesmoTexto: (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase(),
+    item: {
+      classList: { contains: () => false },
+      querySelector: () => ({ textContent: 'Sistemas Distribuídos (Cluster, GRID, etc.)' }),
+      getAttribute: () => 'Sistemas Distribuídos (Cluster, GRID, etc.)'
+    }
+  };
+  vm.runInNewContext(`${source}\nresult = itemCorresponde(item, 'Sistemas Distribuídos (Cluster, GRID');`, context);
+  assert.equal(context.result, true);
 });
