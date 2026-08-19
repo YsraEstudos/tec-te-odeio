@@ -243,13 +243,14 @@
     var selectedAnswer = answerLetter(attempt.answers[question.id]);
     var confirmed = !!(attempt.confirmed || {})[question.id];
     var meta = [question.bank, question.year, question.organization, question.role, question.vacancy, question.subject, question.topic].filter(Boolean).map(function (value) { return '<span class="tag">' + escapeValue(value) + "</span>"; }).join("");
-    var body = question.statementHtml || ("<p>" + escapeValue(question.statement) + "</p>");
+    var body = question.statementHtml ? sanitizePrintStatementHtml(question.statementHtml) : ("<p>" + escapeValue(question.statement) + "</p>");
     var alternatives = (question.options || []).map(function (option) {
       var selected = selectedAnswer === option.letter;
       var correct = confirmed && !!correctAnswer && correctAnswer === option.letter;
       var incorrect = confirmed && selected && !!correctAnswer && selectedAnswer !== correctAnswer;
       var eliminated = !!(attempt.eliminated[question.id] || {})[option.letter];
-      return '<button class="option ' + (selected ? "selected " : "") + (correct ? "correct " : "") + (incorrect ? "incorrect " : "") + (eliminated ? "eliminated " : "") + '" aria-pressed="' + (selected ? "true" : "false") + '" data-letter="' + escapeValue(option.letter) + '">' + (option.html || ("<strong>" + escapeValue(option.letter) + ")</strong> " + escapeValue(option.text))) + "</button>";
+      var optionBody = option.html ? sanitizePrintStatementHtml(option.html) : ("<strong>" + escapeValue(option.letter) + ")</strong> " + escapeValue(option.text));
+      return '<button class="option ' + (selected ? "selected " : "") + (correct ? "correct " : "") + (incorrect ? "incorrect " : "") + (eliminated ? "eliminated " : "") + '" aria-pressed="' + (selected ? "true" : "false") + '" data-letter="' + escapeValue(option.letter) + '">' + optionBody + "</button>";
     }).join("");
     var feedbackClass = "feedback";
     var feedbackText = "Selecione uma alternativa e clique em Responder para confirmar.";

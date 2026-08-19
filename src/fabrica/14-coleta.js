@@ -128,8 +128,37 @@
                         salvas: colecao.length
                     }
                 });
-            } else if (modoStealth) {
+} else if (modoStealth) {
                 // ================= MODO STEALTH OFFLINE (ZERO RESOLUÇÃO / ZERO COTA) =================
+                // Decisão rápida: quando o payload interceptado (ou o scope
+                // Angular) JÁ CONFIRMOU que a questão não tem gabarito, ela é
+                // coletada em ~0,5s sem leitura, scroll ou clique. Questões com
+                // gabarito mantêm o ritmo de leitura humano (cadência mista).
+                var cfgRapido = configuracaoRapidaAtual();
+                var decisaoRapida = false;
+                if (cfgRapido.rapidoSemGabaritoAtivo !== false &&
+                    typeof GabaritoInterceptor !== 'undefined' && GabaritoInterceptor.payloadsVistos > 0) {
+                    var consulta = GabaritoInterceptor.consultarGabaritoQuestao(questao.id, artigoQuestaoAtual());
+                    if (consulta.estado === 'desconhecido') {
+                        await aguardarPayloadQuestao(questao.id, cfgRapido.rapidoCacheEsperaMs || 2000);
+                        if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
+                        consulta = GabaritoInterceptor.consultarGabaritoQuestao(questao.id, artigoQuestaoAtual());
+                    }
+                    if (consulta.estado === 'sem-gabarito') {
+                        decisaoRapida = true;
+                    } else if (consulta.estado === 'com-gabarito') {
+                        log('Questão com gabarito interceptado; mantendo ritmo de leitura.', {
+                            tipo: 'decisao', fase: 'coletando',
+                            contexto: { cadernoId: caderno.id, questaoId: questao.id, numero: questao.number, letra: consulta.letra, metodo: 'rapido-ignorado' }
+                        });
+                    }
+                }
+                if (decisaoRapida) {
+                    var rapido = await coletarQuestaoRapida(questao, caderno, colecao, porId, meuCiclo);
+                    if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
+                    if (rapido && rapido.fim) break;
+                    continue;
+                }
                 var doCacheStealth = mapearGabaritoParaOpcoes(GabaritoInterceptor.obterPorQuestaoId(questao.id), questao.options || []);
                 var resVisivelStealth = document.querySelector('.questao-enunciado-resolucao-errou, .questao-enunciado-resolucao-acertou');
                 var gvStealth = resVisivelStealth ? mapearGabaritoParaOpcoes(lerGabaritoDoTexto(resVisivelStealth.innerText || ''), questao.options || []) : null;
@@ -414,4 +443,205 @@
             tipo: 'resultado', nivel: 'ok', fase: 'coletando',
             contexto: { cadernoId: caderno.id, titulo: caderno.titulo, salvas: caderno.questoes.length, total: caderno.total, pendentes: caderno.questoes.filter(function (q) { return !q.answer; }).length }
         });
+    }
+
+    /* =====================================================================
+     * MODO RÁPIDO — questões confirmadamente SEM gabarito em ~0,5s
+     * (leitura passiva de caches/scope; navegação pipelined; jitter +
+     * rajadas para não gerar cadência mecânica; pausa em aba oculta).
+     * =================================================================== */
+    function artigoQuestaoAtual() {
+        try {
+            if (typeof document === 'undefined' || typeof document.querySelector !== 'function') return null;
+            return document.querySelector('article.questao-enunciado');
+        } catch (e) { return null; }
+    }
+
+    function configuracaoRapidaAtual() {
+        var padroes = (typeof CONFIG === 'object' && CONFIG) || {};
+        var persistida = (typeof estado === 'object' && estado && estado.config &&
+            typeof estado.config === 'object') ? estado.config : {};
+        return Object.assign({}, padroes, persistida);
+    }
+
+    function aguardarPayloadQuestao(questaoId, tempoLimiteMs) {
+        return new Promise(function (resolve) {
+            var chave = String(questaoId);
+            var inicio = Date.now();
+            var limite = tempoLimiteMs || 2000;
+            workerTick(80, function () {
+                if (estado.status !== 'rodando') return true;
+                if (Date.now() - inicio >= limite) return true;
+                try {
+                    if (typeof GabaritoInterceptor === 'undefined') return true;
+                    if (GabaritoInterceptor.cache[chave]) return true;
+                    if (GabaritoInterceptor.cacheSemGabarito[chave]) return true;
+                } catch (e) { return true; }
+                return false;
+            }, limite + 500, function (ok) {
+                resolve(ok);
+            });
+        });
+    }
+
+    function aguardarAbaVisivel() {
+        return new Promise(function (resolve) {
+            try {
+                if (typeof document === 'undefined' || document.hidden !== true) { resolve(true); return; }
+            } catch (e) { resolve(true); return; }
+            workerTick(500, function () {
+                try {
+                    if (document.hidden !== true) return true;
+                } catch (e) { return true; }
+                return false;
+            }, 0, function (ok) { resolve(ok); });
+        });
+    }
+
+    // Jitter gaussiano (Box-Muller) entre min e max: cadência irregular,
+    // sem padrão uniforme identificável no fluxo de navegação.
+    function jitterRapido(cfg) {
+        var min = Math.max(50, Number(cfg.rapidoDelayMin) || 300);
+        var max = Math.max(min + 1, Number(cfg.rapidoDelayMax) || 800);
+        var media = (min + max) / 2;
+        var desvio = Math.max(25, (max - min) / 4);
+        var base = 0;
+        if (typeof StealthEngine !== 'undefined' && typeof StealthEngine.boxMullerRandom === 'function') {
+            base = StealthEngine.boxMullerRandom(media, desvio);
+        } else {
+            base = media + ((Math.random() + Math.random() + Math.random() - 1.5) / 1.5) * desvio;
+        }
+        return Math.min(max, Math.max(min, Math.round(base)));
+    }
+
+    async function coletarQuestaoRapida(questao, caderno, colecao, porId, meuCiclo) {
+        var cfg = configuracaoRapidaAtual();
+        if (porId.has(String(questao.id))) {
+            log('Questão já existe na biblioteca; coleta rápida ignorada.', {
+                tipo: 'decisao', nivel: 'ok', fase: 'coletando',
+                contexto: { cadernoId: caderno.id, questaoId: questao.id, numero: questao.number, salvas: colecao.length }
+            });
+            return { fim: false };
+        }
+
+        if (cfg.rapidoPausaAbaOculta !== false) {
+            await aguardarAbaVisivel();
+            if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return { fim: true };
+        }
+
+        questao.answer = '';
+        questao.answerSource = 'sem-gabarito';
+        colecao.push(questao);
+        porId.add(String(questao.id));
+        questoesPorId.set(String(questao.id), questao);
+        caderno.questoes = colecao;
+        caderno.coletadas = colecao.length;
+        salvarEstado(true);
+        UI.renderBiblioteca();
+        UI.renderProgresso();
+        if (typeof GabaritoInterceptor !== 'undefined' && GabaritoInterceptor.estatisticas) {
+            GabaritoInterceptor.estatisticas.viaRapido += 1;
+        }
+        log('Questão sem gabarito coletada em modo rápido.', {
+            tipo: 'resultado', nivel: 'ok', fase: 'coletando',
+            contexto: { cadernoId: caderno.id, questaoId: questao.id, numero: questao.number, gabarito: '(sem gabarito)', metodo: 'rapido', salvas: colecao.length }
+        });
+
+        // Pausa biológica curta do modo rápido (bloco próprio, não contamina
+        // o ritmo de leitura das questões com gabarito).
+        if (cfg.rapidoCoffeeBreakAtivo !== false && typeof StealthEngine !== 'undefined' &&
+            typeof StealthEngine.precisaDescansoBiologico === 'function') {
+            var cfgDescanso = {
+                stealthCoffeeBreakAtivo: true,
+                stealthIntervaloCoffeeBreakMin: cfg.rapidoCoffeeBreakIntervaloMin || 30,
+                stealthIntervaloCoffeeBreakMax: cfg.rapidoCoffeeBreakIntervaloMax || 60,
+                stealthCoffeeBreakDuracaoMedia: cfg.rapidoCoffeeBreakDuracaoMedia || 9000
+            };
+            if (StealthEngine.precisaDescansoBiologico(cfgDescanso)) {
+                var duracao = StealthEngine.calcularTempoDescansoMs(cfgDescanso);
+                log('Pausa biológica do modo rápido iniciada (~' + Math.round(duracao / 1000) + 's).', {
+                    tipo: 'observacao', fase: 'coletando',
+                    contexto: { cadernoId: caderno.id, duracaoSeg: Math.round(duracao / 1000), questoesColetadas: colecao.length, modo: 'rapido' }
+                });
+                var fimDescanso = Date.now() + duracao;
+                while (Date.now() < fimDescanso && estado.status === 'rodando') {
+                    if (meuCiclo !== cicloExecucaoId) return { fim: true };
+                    UI.setStatus('⚡ Descanso rápido: ' + Math.max(1, Math.round((fimDescanso - Date.now()) / 1000)) + 's restantes...');
+                    await workerSleep(1000);
+                }
+                if (typeof StealthEngine.resetarBlocoDescanso === 'function') {
+                    StealthEngine.resetarBlocoDescanso(cfgDescanso);
+                }
+                if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return { fim: true };
+            }
+        }
+        if (typeof StealthEngine !== 'undefined' && typeof StealthEngine.registrarQuestaoColetada === 'function') {
+            StealthEngine.registrarQuestaoColetada();
+        }
+
+        // Pipelining: a navegação para a próxima questão já começa aqui; o
+        // jitter seguinte acontece em paralelo ao carregamento do XHR do site.
+        var idAnterior = lerQuestaoIdAtual();
+        var assinaturaAnterior = assinaturaQuestao();
+        var numeroAlvo = questao.number + 1;
+        var posAlvo = lerPosicao();
+        if (posAlvo && posAlvo.posicao && posAlvo.total && numeroAlvo > posAlvo.total) {
+            return { fim: true };
+        }
+        if (!navegarQuestao(numeroAlvo)) {
+            log('Modo rápido: navegação para a próxima questão falhou.', {
+                tipo: 'erro', nivel: 'erro', fase: 'coletando',
+                contexto: { cadernoId: caderno.id, questaoId: questao.id, numero: questao.number, proximo: numeroAlvo }
+            });
+            return { fim: true };
+        }
+        UI.setStatus('⚡ Coletando rápida ' + numeroAlvo + '/' + (posAlvo ? posAlvo.total : '?') + ' (sem gabarito)...');
+        var pausaJitter = jitterRapido(cfg);
+        await workerSleep(pausaJitter);
+        if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return { fim: true };
+
+        // Espera a próxima questão com poll rápido; uma tentativa extra caso
+        // o primeiro carregamento estoure o prazo.
+        var carregada = await new Promise(function (resolve) {
+            aguardarQuestaoMudar(idAnterior, assinaturaAnterior, resolve, {
+                interval: cfg.rapidoPollInterval || 120,
+                timeout: 8000
+            });
+        });
+        if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return { fim: true };
+        if (!carregada && !porId.has(String(numeroAlvo))) {
+            var posAntes = lerPosicao();
+            var sentinel = (posAntes && posAntes.posicao === numeroAlvo) ? '' : (lerQuestaoIdAtual() || '');
+            var assinaturaRetry = assinaturaQuestao();
+            if (navegarQuestao(numeroAlvo)) {
+                carregada = await new Promise(function (resolve) {
+                    aguardarQuestaoMudar(sentinel, assinaturaRetry, resolve, {
+                        interval: cfg.rapidoPollInterval || 120,
+                        timeout: 8000
+                    });
+                });
+                if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return { fim: true };
+            }
+        }
+        if (!carregada) {
+            log('Modo rápido: próxima questão não carregou a tempo; deixando para a passada de retry.', {
+                tipo: 'resultado', nivel: 'warn', fase: 'coletando',
+                contexto: { cadernoId: caderno.id, questaoId: questao.id, numero: questao.number, proximo: numeroAlvo }
+            });
+        }
+
+        // Micro-rolagem ocasional (10%) mantém o gesto humano sem custo de tempo.
+        if (Math.random() < 0.1 && typeof StealthEngine !== 'undefined' &&
+            typeof StealthEngine.scrollOrganico === 'function') {
+            try {
+                var artEl = artigoQuestaoAtual();
+                if (artEl && typeof artEl.getBoundingClientRect === 'function' && typeof window !== 'undefined') {
+                    var rectArt = artEl.getBoundingClientRect();
+                    var destino = (window.scrollY || 0) + rectArt.top + Math.min(rectArt.height * 0.4, 400);
+                    await StealthEngine.scrollOrganico(destino, 400);
+                    if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return { fim: true };
+                }
+            } catch (e) {}
+        }
+        return { fim: false };
     }

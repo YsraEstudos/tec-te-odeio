@@ -143,6 +143,21 @@ test('HTML interativo oferece download TXT aplicado às questões filtradas', ()
   assert.match(html, /questão\(ões\) filtrada\(s\)/);
 });
 
+test('HTML interativo sanitiza enunciado e alternativas antes de inserir no DOM', () => {
+  const exp = loadExport();
+  const html = exp.buildInteractiveHtml({
+    id: 'caderno-x', code: 'caderno-x', title: 'Seguro',
+    questions: [{
+      id: 'q-x', number: 1,
+      statementHtml: '<p onclick="alert(1)">Texto</p><script>alert(2)</script>',
+      options: [{ letter: 'A', html: '<img src="javascript:alert(3)" onerror="alert(4)">' }],
+    }],
+  });
+
+  assert.match(html, /sanitizePrintStatementHtml\(question\.statementHtml\)/);
+  assert.match(html, /sanitizePrintStatementHtml\(option\.html\)/);
+});
+
 test('HTML interativo abre impressão das questões atualmente filtradas', () => {
   const exp = loadExport();
   const html = exp.buildInteractiveHtml({

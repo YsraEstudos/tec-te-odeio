@@ -25,6 +25,22 @@
         stealthCoffeeBreakAtivo: true,
         stealthIntervaloCoffeeBreakMin: 25,
         stealthIntervaloCoffeeBreakMax: 40,
-        stealthCoffeeBreakDuracaoMedia: 60000
+        stealthCoffeeBreakDuracaoMedia: 60000,
+        // Modo rápido: questões confirmadamente SEM gabarito (payload já
+        // interceptado) são coletadas em ~0,5s, com jitter e rajadas para
+        // não produzir cadência mecânica no fluxo de XHR do site.
+        rapidoSemGabaritoAtivo: true,
+        rapidoDelayMin: 300,
+        rapidoDelayMax: 800,
+        rapidoPollInterval: 120,
+        rapidoCacheEsperaMs: 2000,
+        rapidoCoffeeBreakAtivo: true,
+        rapidoCoffeeBreakIntervaloMin: 30,
+        rapidoCoffeeBreakIntervaloMax: 60,
+        rapidoCoffeeBreakDuracaoMedia: 9000,
+        rapidoPausaAbaOculta: true,
+        // Interceptação do gabarito: XHR sempre; fetch apenas se o site
+        // migrar para fetch (cada patch extra é superfície de detecção).
+        interceptarFetch: false
     };
 

@@ -36,7 +36,25 @@
         var tarefas = {};  // id -> {tipo, fim, intervalo, condicao, callback, resolve, timer}
         var proximoId = 1;
 
+        // O Worker só é usado com a aba OCULTA (setTimeout é estrangulado
+        // nesse estado). Com a aba visível, timers do main thread bastam — e
+        // cada segundo de vida do Worker é uma entrada a mais em
+        // performance.getEntries(), um rastro evitável. Só o ambiente exige
+        // Worker; o conteúdo do script nunca o usa.
+        function documentoOculto() {
+            try {
+                return typeof document !== 'undefined' && document.hidden === true;
+            } catch (e) {
+                return false;
+            }
+        }
+
         function tentarCriarWorker() {
+            if (!documentoOculto()) {
+                // Mantém null para permitir nova tentativa se a aba ficar
+                // oculta depois. false é reservado a indisponibilidade real.
+                return;
+            }
             if (typeof Worker !== 'function' || typeof Blob !== 'function' ||
                 typeof URL === 'undefined' || !URL.createObjectURL || !URL.revokeObjectURL) {
                 worker = false;
@@ -64,6 +82,26 @@
             }
         }
 
+        // Aba visível + nenhuma tarefa pendente → derruba o Worker para não
+        // deixar rastro (performance entries) sem necessidade.
+        function limparWorkerSeOciosoVisivel() {
+            if (!worker || typeof worker !== 'object') return;
+            if (documentoOculto()) return;
+            if (Object.keys(tarefas).length > 0) return;
+            try { worker.terminate(); } catch (e) {}
+            worker = null;
+        }
+
+        // Observa a visibilidade: ao voltar para a aba, tenta limpar o
+        // Worker assim que ocioso. Registro defensivo (testes sem document).
+        try {
+            if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+                document.addEventListener('visibilitychange', function () {
+                    limparWorkerSeOciosoVisivel();
+                });
+            }
+        } catch (e) {}
+
         function registrar(tarefa) {
             var id = proximoId++;
             tarefas[id] = tarefa;
@@ -79,6 +117,7 @@
                 if (t.tipo === 'once') clearTimeout(t.timer);
                 else clearInterval(t.timer);
             }
+            limparWorkerSeOciosoVisivel();
             return t;
         }
 
@@ -97,23 +136,20 @@
             var t = tarefas[id];
             if (!t) return; // já cancelada: ignora a mensagem órfã
             if (t.tipo === 'once') {
-                delete tarefas[id];
-                if (t.timer !== undefined) clearTimeout(t.timer);
+                remover(id);
                 t.resolve();
                 return;
             }
             // poll: termina quando a condição satisfaz ou o deadline estoura;
             // senão segue aguardando (o intervalo continua vivo).
             if (t.condicao()) {
-                delete tarefas[id];
-                if (t.timer !== undefined) clearInterval(t.timer);
+                remover(id);
                 cancelarNoWorker(id);
                 t.callback(true);
                 return;
             }
             if (Date.now() > t.fim) {
-                delete tarefas[id];
-                if (t.timer !== undefined) clearInterval(t.timer);
+                remover(id);
                 cancelarNoWorker(id);
                 t.callback(false);
                 return;
@@ -186,4 +222,3 @@
     function workerTick(intervalo, condicao, timeout, callback) {
         Scheduler.poll(intervalo, condicao, timeout, callback);
     }
-

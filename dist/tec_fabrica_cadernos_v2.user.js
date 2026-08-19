@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Tec Concursos — Fábrica de Cadernos
 // @namespace    tec-fabrica-cadernos-v2
-// @version      2.1.10
+// @version      2.2.0
 // @description  Cria cadernos em lote a partir de um plano de matérias (com bancas e anos), coleta cada questão com o gabarito oficial e exporta HTML interativo + Excel completos.
 // @author       voce
 // @match        https://www.tecconcursos.com.br/questoes/*
@@ -80,7 +80,7 @@
     if (location.hostname === 'www.tecconcursos.com.br' && !/^\/questoes(?:\/|$)/i.test(location.pathname)) return;
 
     // Versão do script — espelha @version no cabeçalho do userscript.
-    var SCRIPT_VERSION = '2.1.10';
+    var SCRIPT_VERSION = '2.2.0';
 
     // O gerenciador pode manter versões antigas instaladas em paralelo. Sem
     // este bloqueio, duas máquinas de estado clicam no mesmo filtro e uma
@@ -132,7 +132,23 @@
         stealthCoffeeBreakAtivo: true,
         stealthIntervaloCoffeeBreakMin: 25,
         stealthIntervaloCoffeeBreakMax: 40,
-        stealthCoffeeBreakDuracaoMedia: 60000
+        stealthCoffeeBreakDuracaoMedia: 60000,
+        // Modo rápido: questões confirmadamente SEM gabarito (payload já
+        // interceptado) são coletadas em ~0,5s, com jitter e rajadas para
+        // não produzir cadência mecânica no fluxo de XHR do site.
+        rapidoSemGabaritoAtivo: true,
+        rapidoDelayMin: 300,
+        rapidoDelayMax: 800,
+        rapidoPollInterval: 120,
+        rapidoCacheEsperaMs: 2000,
+        rapidoCoffeeBreakAtivo: true,
+        rapidoCoffeeBreakIntervaloMin: 30,
+        rapidoCoffeeBreakIntervaloMax: 60,
+        rapidoCoffeeBreakDuracaoMedia: 9000,
+        rapidoPausaAbaOculta: true,
+        // Interceptação do gabarito: XHR sempre; fetch apenas se o site
+        // migrar para fetch (cada patch extra é superfície de detecção).
+        interceptarFetch: false
     };
 
     /* =====================================================================
@@ -173,7 +189,25 @@
         var tarefas = {};  // id -> {tipo, fim, intervalo, condicao, callback, resolve, timer}
         var proximoId = 1;
 
+        // O Worker só é usado com a aba OCULTA (setTimeout é estrangulado
+        // nesse estado). Com a aba visível, timers do main thread bastam — e
+        // cada segundo de vida do Worker é uma entrada a mais em
+        // performance.getEntries(), um rastro evitável. Só o ambiente exige
+        // Worker; o conteúdo do script nunca o usa.
+        function documentoOculto() {
+            try {
+                return typeof document !== 'undefined' && document.hidden === true;
+            } catch (e) {
+                return false;
+            }
+        }
+
         function tentarCriarWorker() {
+            if (!documentoOculto()) {
+                // Mantém null para permitir nova tentativa se a aba ficar
+                // oculta depois. false é reservado a indisponibilidade real.
+                return;
+            }
             if (typeof Worker !== 'function' || typeof Blob !== 'function' ||
                 typeof URL === 'undefined' || !URL.createObjectURL || !URL.revokeObjectURL) {
                 worker = false;
@@ -201,6 +235,26 @@
             }
         }
 
+        // Aba visível + nenhuma tarefa pendente → derruba o Worker para não
+        // deixar rastro (performance entries) sem necessidade.
+        function limparWorkerSeOciosoVisivel() {
+            if (!worker || typeof worker !== 'object') return;
+            if (documentoOculto()) return;
+            if (Object.keys(tarefas).length > 0) return;
+            try { worker.terminate(); } catch (e) {}
+            worker = null;
+        }
+
+        // Observa a visibilidade: ao voltar para a aba, tenta limpar o
+        // Worker assim que ocioso. Registro defensivo (testes sem document).
+        try {
+            if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+                document.addEventListener('visibilitychange', function () {
+                    limparWorkerSeOciosoVisivel();
+                });
+            }
+        } catch (e) {}
+
         function registrar(tarefa) {
             var id = proximoId++;
             tarefas[id] = tarefa;
@@ -216,6 +270,7 @@
                 if (t.tipo === 'once') clearTimeout(t.timer);
                 else clearInterval(t.timer);
             }
+            limparWorkerSeOciosoVisivel();
             return t;
         }
 
@@ -234,23 +289,20 @@
             var t = tarefas[id];
             if (!t) return; // já cancelada: ignora a mensagem órfã
             if (t.tipo === 'once') {
-                delete tarefas[id];
-                if (t.timer !== undefined) clearTimeout(t.timer);
+                remover(id);
                 t.resolve();
                 return;
             }
             // poll: termina quando a condição satisfaz ou o deadline estoura;
             // senão segue aguardando (o intervalo continua vivo).
             if (t.condicao()) {
-                delete tarefas[id];
-                if (t.timer !== undefined) clearInterval(t.timer);
+                remover(id);
                 cancelarNoWorker(id);
                 t.callback(true);
                 return;
             }
             if (Date.now() > t.fim) {
-                delete tarefas[id];
-                if (t.timer !== undefined) clearInterval(t.timer);
+                remover(id);
                 cancelarNoWorker(id);
                 t.callback(false);
                 return;
@@ -323,7 +375,6 @@
     function workerTick(intervalo, condicao, timeout, callback) {
         Scheduler.poll(intervalo, condicao, timeout, callback);
     }
-
     /* =====================================================================
      * MOTOR STEALTH & COMPORTAMENTO BIOLÓGICO HUMANO
      * ---------------------------------------------------------------------
@@ -670,7 +721,13 @@
     function eAlvoTelemetria(entrada) {
         var url = urlDaEntradaTelemetria(entrada);
         if (!url) return false;
-        return dominioAlvo(url.hostname) || ANTITRACKER_CAMINHO.test(url.pathname);
+        if (dominioAlvo(url.hostname)) return true;
+        // Caminhos genéricos como /events e /metrics podem ser APIs legítimas
+        // do próprio Tec. O heurístico de caminho só vale fora da origem atual.
+        try {
+            if (typeof location !== 'undefined' && location.origin && url.origin === location.origin) return false;
+        } catch (e) {}
+        return ANTITRACKER_CAMINHO.test(url.pathname);
     }
 
     function marcarFuncao(funcao) {
@@ -805,9 +862,16 @@
         // webdriver é um sinal explícito de automação. Outros valores do
         // navigator não são falsificados: inconsistências aumentam a entropia.
         try {
-            var atual = Object.getOwnPropertyDescriptor(navigator, 'webdriver');
+            if (typeof navigator === 'undefined' || navigator.webdriver !== true) return;
+            var alvo = navigator;
+            var atual = Object.getOwnPropertyDescriptor(alvo, 'webdriver');
+            if (!atual) {
+                var prototipo = Object.getPrototypeOf(navigator);
+                var herdado = prototipo && Object.getOwnPropertyDescriptor(prototipo, 'webdriver');
+                if (herdado) { alvo = prototipo; atual = herdado; }
+            }
             if (!atual || atual.configurable !== false) {
-                Object.defineProperty(navigator, 'webdriver', {
+                Object.defineProperty(alvo, 'webdriver', {
                     get: function () { return undefined; },
                     enumerable: atual ? atual.enumerable : false,
                     configurable: true
@@ -1471,7 +1535,43 @@
      * o banco guarda metadados, cadernos e questões separadamente.
      * =================================================================== */
     var RE_DATA_IMAGE_B64 = /data:image\/[a-zA-Z0-9.+-]+(?:;[a-zA-Z0-9=.-]+)*;base64,[A-Za-z0-9+/=\s]+/gi;
-    var IDB_DB = 'tec_fabrica_db';
+
+    // Identificador de instalação: o nome do banco IndexedDB ganha um sufixo
+    // aleatório (tec_fabrica_db_<16ch>) para evitar nome estático e colisões.
+    // Isto não é controle de acesso: código da mesma origem ainda pode listar
+    // bancos e ler localStorage. A semente fica em tec_prefs, com versão.
+    function obterIdInstalacao() {
+        try {
+            if (typeof window === 'undefined' || !window.localStorage) return '';
+            var bruto = window.localStorage.getItem('tec_prefs');
+            var prefs = null;
+            if (bruto) {
+                try { prefs = JSON.parse(bruto); } catch (e) { prefs = null; }
+            }
+            if (prefs && prefs.v === 1 && typeof prefs.i === 'string' && /^[A-Za-z0-9]{16}$/.test(prefs.i)) {
+                return prefs.i;
+            }
+            var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+            var novo = '';
+            var aleatorios = null;
+            try {
+                if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+                    aleatorios = new Uint32Array(16);
+                    window.crypto.getRandomValues(aleatorios);
+                }
+            } catch (e) { aleatorios = null; }
+            for (var c = 0; c < 16; c += 1) {
+                var sorteio = aleatorios ? aleatorios[c] : Math.floor(Math.random() * 0x100000000);
+                novo += chars.charAt(sorteio % chars.length);
+            }
+            window.localStorage.setItem('tec_prefs', JSON.stringify({ v: 1, i: novo }));
+            return novo;
+        } catch (e) {
+            return '';
+        }
+    }
+    var idInstalacao = obterIdInstalacao();
+    var IDB_DB = 'tec_fabrica_db' + (idInstalacao ? '_' + idInstalacao : '');
     var IDB_VERSION = 2;
     var IDB_LEGACY_STORE = 'estado';
     var IDB_META_STORE = 'meta';
@@ -1572,6 +1672,18 @@
             if (typeof valor.config.stealthWpm !== 'number' || valor.config.stealthWpm < 50) valor.config.stealthWpm = 220;
             if (typeof valor.config.stealthCoffeeBreakAtivo !== 'boolean') valor.config.stealthCoffeeBreakAtivo = true;
         }
+        // Mantém a configuração rápida completa mesmo quando o usuário está
+        // em outro modo e só depois alterna para stealth-offline.
+        if (typeof valor.config.rapidoSemGabaritoAtivo !== 'boolean') valor.config.rapidoSemGabaritoAtivo = true;
+        if (!Number.isFinite(Number(valor.config.rapidoDelayMin)) || Number(valor.config.rapidoDelayMin) < 100) valor.config.rapidoDelayMin = 300;
+        if (!Number.isFinite(Number(valor.config.rapidoDelayMax)) || Number(valor.config.rapidoDelayMax) < Number(valor.config.rapidoDelayMin)) valor.config.rapidoDelayMax = 800;
+        if (!Number.isFinite(Number(valor.config.rapidoPollInterval)) || Number(valor.config.rapidoPollInterval) < 50) valor.config.rapidoPollInterval = 120;
+        if (!Number.isFinite(Number(valor.config.rapidoCacheEsperaMs)) || Number(valor.config.rapidoCacheEsperaMs) < 0) valor.config.rapidoCacheEsperaMs = 2000;
+        if (typeof valor.config.rapidoCoffeeBreakAtivo !== 'boolean') valor.config.rapidoCoffeeBreakAtivo = true;
+        if (!Number.isFinite(Number(valor.config.rapidoCoffeeBreakIntervaloMin)) || Number(valor.config.rapidoCoffeeBreakIntervaloMin) < 1) valor.config.rapidoCoffeeBreakIntervaloMin = 30;
+        if (!Number.isFinite(Number(valor.config.rapidoCoffeeBreakIntervaloMax)) || Number(valor.config.rapidoCoffeeBreakIntervaloMax) < Number(valor.config.rapidoCoffeeBreakIntervaloMin)) valor.config.rapidoCoffeeBreakIntervaloMax = 60;
+        if (!Number.isFinite(Number(valor.config.rapidoCoffeeBreakDuracaoMedia)) || Number(valor.config.rapidoCoffeeBreakDuracaoMedia) < 0) valor.config.rapidoCoffeeBreakDuracaoMedia = 9000;
+        if (typeof valor.config.rapidoPausaAbaOculta !== 'boolean') valor.config.rapidoPausaAbaOculta = true;
         if (valor.config.modoCriacao !== 'criar-tudo') {
             valor.config.modoCriacao = 'padrao';
         }
@@ -1801,8 +1913,166 @@
         });
     }
 
+    function abrirBancoAntigoSeExistir() {
+        var factory = window.indexedDB;
+        function abrir() {
+            return new Promise(function (resolve) {
+                var req;
+                var inexistente = false;
+                try { req = factory.open('tec_fabrica_db'); } catch (e) { resolve(null); return; }
+                req.onupgradeneeded = function (evento) {
+                    if (evento.oldVersion === 0) {
+                        inexistente = true;
+                        try { req.transaction.abort(); } catch (e) {}
+                    }
+                };
+                req.onerror = function () { resolve(null); };
+                req.onsuccess = function () {
+                    if (inexistente) {
+                        try { req.result.close(); } catch (e) {}
+                        resolve(null);
+                        return;
+                    }
+                    resolve(req.result || null);
+                };
+            });
+        }
+        if (typeof factory.databases !== 'function') return abrir();
+        return factory.databases().then(function (lista) {
+            var existe = (lista || []).some(function (item) { return item && item.name === 'tec_fabrica_db'; });
+            return existe ? abrir() : null;
+        }).catch(abrir);
+    }
+
+    function lerStoresDoBanco(db, stores) {
+        if (!stores.length) return Promise.resolve([]);
+        return new Promise(function (resolve, reject) {
+            var tx;
+            var resultados = stores.map(function () { return []; });
+            try { tx = db.transaction(stores, 'readonly'); } catch (e) { reject(e); return; }
+            stores.forEach(function (store, i) {
+                var reqGet;
+                try { reqGet = tx.objectStore(store).getAll(); } catch (e) { try { tx.abort(); } catch (e2) {} reject(e); return; }
+                reqGet.onsuccess = function () { resultados[i] = reqGet.result || []; };
+                reqGet.onerror = function () { try { tx.abort(); } catch (e) {} };
+            });
+            tx.oncomplete = function () { resolve(resultados); };
+            tx.onerror = function () { reject(tx.error || new Error('falha ao ler banco antigo')); };
+            tx.onabort = function () { reject(tx.error || new Error('leitura do banco antigo abortada')); };
+        });
+    }
+
+    function lerLegadoDoBanco(db) {
+        if (!db.objectStoreNames.contains(IDB_LEGACY_STORE)) return Promise.resolve(null);
+        return new Promise(function (resolve, reject) {
+            var tx;
+            var legado = null;
+            var erroLeitura = null;
+            try { tx = db.transaction(IDB_LEGACY_STORE, 'readonly'); } catch (e) { reject(e); return; }
+            var reqLeg = tx.objectStore(IDB_LEGACY_STORE).get(CONFIG.storageKey);
+            reqLeg.onsuccess = function () {
+                var rec = reqLeg.result;
+                if (!rec || !rec.json) return;
+                legado = parseLegadoV1(rec.json);
+                if (!legado) {
+                    erroLeitura = new Error('legado antigo inválido');
+                    try { tx.abort(); } catch (e) {}
+                }
+            };
+            reqLeg.onerror = function () {
+                erroLeitura = reqLeg.error || new Error('falha ao ler legado antigo');
+                try { tx.abort(); } catch (e) {}
+            };
+            tx.oncomplete = function () { resolve(legado); };
+            tx.onerror = function () { reject(erroLeitura || tx.error || new Error('falha ao ler legado antigo')); };
+            tx.onabort = function () { reject(erroLeitura || tx.error || new Error('leitura do legado antigo abortada')); };
+        });
+    }
+
+    function copiarStoresParaBancoNovo(stores, resultados) {
+        if (!stores.length) return Promise.resolve();
+        return abrirIdb().then(function (dbNovo) {
+            return new Promise(function (resolve, reject) {
+                var txNovo;
+                try { txNovo = dbNovo.transaction(stores, 'readwrite'); } catch (e) { reject(e); return; }
+                txNovo.oncomplete = function () { resolve(); };
+                txNovo.onerror = function () { reject(txNovo.error || new Error('falha ao copiar banco antigo')); };
+                txNovo.onabort = function () { reject(txNovo.error || new Error('cópia do banco antigo abortada')); };
+                try {
+                    resultados.forEach(function (registros, i) {
+                        var alvo = txNovo.objectStore(stores[i]);
+                        registros.forEach(function (registro) { alvo.put(registro); });
+                    });
+                } catch (e) {
+                    try { txNovo.abort(); } catch (e2) {}
+                    reject(e);
+                }
+            });
+        });
+    }
+
+    function apagarBancoAntigo() {
+        return new Promise(function (resolve) {
+            var req;
+            try { req = window.indexedDB.deleteDatabase('tec_fabrica_db'); } catch (e) { resolve(false); return; }
+            req.onsuccess = function () { resolve(true); };
+            req.onerror = function () { resolve(false); };
+            req.onblocked = function () { resolve(false); };
+        });
+    }
+
+    // Migra de forma fail-safe: qualquer erro de leitura/escrita preserva o
+    // banco antigo. A exclusão só é solicitada após a cópia ser confirmada.
+    function migrarBancoAntigo() {
+        if (!idInstalacao || typeof window === 'undefined' || !window.indexedDB) return Promise.resolve(false);
+        var dbAntigo = null;
+        return abrirBancoAntigoSeExistir().then(function (db) {
+            dbAntigo = db;
+            if (!dbAntigo) return false;
+            var conhecidos = [IDB_META_STORE, IDB_CADERNOS_STORE, IDB_QUESTOES_STORE, IDB_LEGACY_STORE];
+            var nomes = [];
+            for (var i = 0; i < dbAntigo.objectStoreNames.length; i += 1) nomes.push(dbAntigo.objectStoreNames[i]);
+            if (nomes.some(function (nome) { return conhecidos.indexOf(nome) < 0; })) {
+                try { dbAntigo.close(); } catch (e) {}
+                dbAntigo = null;
+                return false;
+            }
+            var stores = [IDB_META_STORE, IDB_CADERNOS_STORE, IDB_QUESTOES_STORE].filter(function (nome) {
+                return dbAntigo.objectStoreNames.contains(nome);
+            });
+            return Promise.all([lerStoresDoBanco(dbAntigo, stores), lerLegadoDoBanco(dbAntigo)]).then(function (dados) {
+                var resultados = dados[0];
+                var legado = dados[1];
+                var temRegistros = resultados.some(function (lista) { return lista.length > 0; });
+                if (!temRegistros && !legado) {
+                    try { dbAntigo.close(); } catch (e) {}
+                    dbAntigo = null;
+                    return false;
+                }
+                var escrita = legado ? salvarSnapshot(legado) : Promise.resolve();
+                return escrita.then(function () { return copiarStoresParaBancoNovo(stores, resultados); }).then(function () {
+                    try { dbAntigo.close(); } catch (e) {}
+                    dbAntigo = null;
+                    return apagarBancoAntigo();
+                });
+            });
+        }).catch(function () {
+            if (dbAntigo) { try { dbAntigo.close(); } catch (e) {} }
+            return false;
+        });
+    }
+
     function carregarEstadoIdb() {
-        return carregarV2().then(function (v2) { return v2 || migrarV1(); });
+        if (!idInstalacao) return carregarV2().then(function (v2) { return v2 || migrarV1(); });
+        // Um banco novo já válido sempre vence. Isso evita que uma origem
+        // antiga, cuja exclusão ficou bloqueada, sobrescreva dados mais novos
+        // em boots seguintes.
+        return carregarV2().then(function (v2Existente) {
+            if (v2Existente) return v2Existente;
+            return migrarBancoAntigo().then(function () {
+                return carregarV2().then(function (v2) { return v2 || migrarV1(); });
+            });
+        });
     }
 
     function salvarEstadoIdb(valor) {
@@ -2050,8 +2320,10 @@
         return id + '|' + (pos ? (pos.posicao + '/' + pos.total) : '?') + '|' + hash.toString(36);
     }
 
-    function aguardarQuestaoMudar(idAnterior, assinaturaAnterior, callback) {
-        workerTick(CONFIG.pollInterval, function () {
+    function aguardarQuestaoMudar(idAnterior, assinaturaAnterior, callback, opcoes) {
+        var intervalo = (opcoes && Number.isFinite(Number(opcoes.interval))) ? Number(opcoes.interval) : CONFIG.pollInterval;
+        var timeout = (opcoes && Number.isFinite(Number(opcoes.timeout))) ? Number(opcoes.timeout) : CONFIG.loadTimeout;
+        workerTick(intervalo, function () {
             // exige o ID da questão alterado E o conteúdo (article/texto) carregado;
             // quando uma assinatura anterior é informada, exige também que a
             // assinatura atual mude (rejeita artigo obsoleto).
@@ -2060,7 +2332,7 @@
             if (!questaoConteudoPronta()) return false;
             if (assinaturaAnterior && assinaturaQuestao() === assinaturaAnterior) return false;
             return true;
-        }, CONFIG.loadTimeout, callback);
+        }, timeout, callback);
     }
 
     function normalizarNumeroInterface(valor) {
@@ -2236,10 +2508,32 @@
      * resposta e guardamos o gabarito em cache. O campo "status" NÃO é
      * confiável (verificado ao vivo: status=3 ≠ gabarito real) e é ignorado.
      * =================================================================== */
+    var CAMPOS_GABARITO = ['numeroAlternativaCorreta', 'alternativaCorreta', 'gabaritoDefinitivo', 'gabaritoPreliminar', 'gabarito'];
+
+    function payloadDeclaraCampoGabarito(q) {
+        if (!q || typeof q !== 'object') return false;
+        for (var i = 0; i < CAMPOS_GABARITO.length; i += 1) {
+            if (Object.prototype.hasOwnProperty.call(q, CAMPOS_GABARITO[i])) return true;
+        }
+        return false;
+    }
+
+    function payloadConfirmaAusenciaGabarito(q) {
+        var encontrou = false;
+        for (var i = 0; i < CAMPOS_GABARITO.length; i += 1) {
+            if (!Object.prototype.hasOwnProperty.call(q, CAMPOS_GABARITO[i])) continue;
+            encontrou = true;
+            var valor = q[CAMPOS_GABARITO[i]];
+            if (valor !== null && valor !== undefined && valor !== false && valor !== '' && valor !== 0 && valor !== '0') {
+                return false;
+            }
+        }
+        return encontrou;
+    }
+
     function extrairGabaritoDoPayload(q) {
-        var campos = ['numeroAlternativaCorreta', 'alternativaCorreta', 'gabaritoDefinitivo', 'gabaritoPreliminar', 'gabarito'];
-        for (var i = 0; i < campos.length; i += 1) {
-            var v = q[campos[i]];
+        for (var i = 0; i < CAMPOS_GABARITO.length; i += 1) {
+            var v = q[CAMPOS_GABARITO[i]];
             if (v === null || v === undefined || v === false || v === '') continue;
             var s = String(v).trim().toUpperCase();
             if (/^[A-E]$/.test(s)) return s;
@@ -2253,41 +2547,82 @@
             var nome = nomeNativo || (fnOriginal && fnOriginal.name) || '';
             Object.defineProperty(fnSubstituta, 'name', { value: nome, configurable: true });
             Object.defineProperty(fnSubstituta, 'length', { value: (fnOriginal && fnOriginal.length) || 0, configurable: true });
-            fnSubstituta.toString = function () {
-                return 'function ' + nome + '() { [native code] }';
-            };
+            Object.defineProperty(fnSubstituta, 'toString', {
+                value: function () { return 'function ' + nome + '() { [native code] }'; },
+                configurable: true
+            });
         } catch (e) {}
         return fnSubstituta;
+    }
+
+    var urlsDeXhr = null;
+    try { urlsDeXhr = new WeakMap(); } catch (e) { urlsDeXhr = null; }
+
+    // Localiza o objeto da questão dentro do scope Angular (o dado que o
+    // próprio site carregou). Nenhum patch de nativo: apenas leitura dos
+    // objetos que a aplicação já mantém em memória.
+    function acharObjetoQuestaoNoScope(scope) {
+        if (!scope) return null;
+        var nomesConhecidos = ['questao', 'q', 'item', 'questaoAtual'];
+        var i, v;
+        for (i = 0; i < nomesConhecidos.length; i += 1) {
+            v = scope[nomesConhecidos[i]];
+            if (v && typeof v === 'object' && (v.idQuestao != null || v.numeroAlternativaCorreta != null)) return v;
+        }
+        var chaves = Object.keys(scope);
+        for (i = 0; i < chaves.length; i += 1) {
+            v = scope[chaves[i]];
+            if (v && typeof v === 'object' && (v.idQuestao != null || v.numeroAlternativaCorreta != null)) return v;
+        }
+        if (scope.vm && typeof scope.vm === 'object' && scope.vm.questao &&
+            (scope.vm.questao.idQuestao != null || scope.vm.questao.numeroAlternativaCorreta != null)) {
+            return scope.vm.questao;
+        }
+        if (scope.ctrl && typeof scope.ctrl === 'object' && scope.ctrl.questao &&
+            (scope.ctrl.questao.idQuestao != null || scope.ctrl.questao.numeroAlternativaCorreta != null)) {
+            return scope.ctrl.questao;
+        }
+        return null;
     }
 
     var GabaritoInterceptor = {
         cache: {},          // por idQuestao → letra
         cachePorIndex: {},  // por "cadernoId:index" → letra
+        cacheSemGabarito: {},   // por idQuestao → true (payload chegou e NÃO tem gabarito)
+        semGabaritoPorIndex: {}, // por "cadernoId:index" → true
+        payloadsVistos: 0,  // quantos payloads de questão foram observados nesta sessão
         instalado: false,
         ultimoMetodo: null,
-        estatisticas: { viaCache: 0, viaResolucaoVisivel: 0, viaClique: 0, semGabarito: 0 },
+        estatisticas: { viaCache: 0, viaResolucaoVisivel: 0, viaClique: 0, viaRapido: 0, semGabarito: 0 },
         processarRespostaJson: function (url, data) {
             try {
                 var m = String(url || '').match(/\/api\/cadernos\/(\d+)\/questoes\/(\d+)/);
                 if (!m || !data) return;
+                this.payloadsVistos += 1;
                 var q = data.questao;
                 if (q && q.idQuestao != null) {
                     var letra = extrairGabaritoDoPayload(q);
+                    var chave = String(q.idQuestao);
+                    var porIndex = m[1] + ':' + m[2];
                     log('Resposta de questão observada na rede.', {
                         tipo: 'observacao', fase: 'coletando',
-                        contexto: { cadernoId: m[1], indice: Number(m[2]), questaoId: String(q.idQuestao) }
+                        contexto: { cadernoId: m[1], indice: Number(m[2]), questaoId: chave }
                     });
                     if (letra) {
-                        this.cache[String(q.idQuestao)] = letra;
-                        this.cachePorIndex[m[1] + ':' + m[2]] = letra;
+                        this.cache[chave] = letra;
+                        this.cachePorIndex[porIndex] = letra;
+                        delete this.cacheSemGabarito[chave];
+                        delete this.semGabaritoPorIndex[porIndex];
                         log('Gabarito capturado pela interceptação.', {
                             tipo: 'resultado', nivel: 'ok', fase: 'resolvendo',
-                            contexto: { cadernoId: m[1], indice: Number(m[2]), questaoId: String(q.idQuestao), gabarito: letra, metodo: 'interceptacao' }
+                            contexto: { cadernoId: m[1], indice: Number(m[2]), questaoId: chave, gabarito: letra, metodo: 'interceptacao' }
                         });
-                    } else {
+                    } else if (payloadConfirmaAusenciaGabarito(q)) {
+                        this.cacheSemGabarito[chave] = true;
+                        this.semGabaritoPorIndex[porIndex] = true;
                         log('Resposta da questão não trouxe gabarito utilizável.', {
                             tipo: 'resultado', nivel: 'warn', fase: 'resolvendo',
-                            contexto: { cadernoId: m[1], indice: Number(m[2]), questaoId: String(q.idQuestao), gabarito: null, metodo: 'interceptacao' }
+                            contexto: { cadernoId: m[1], indice: Number(m[2]), questaoId: chave, gabarito: null, metodo: 'interceptacao' }
                         });
                     }
                 }
@@ -2298,18 +2633,71 @@
                 });
             }
         },
+        // Leitura passiva do scope Angular: zero patches em nativos. Se o
+        // objeto da questão já estiver renderizado no próprio site, o
+        // gabarito (ou a ausência dele) é registrado nos mesmos caches.
+        lerGabaritoDoScope: function (artigo) {
+            try {
+                if (typeof angular === 'undefined' || !artigo || typeof angular.element !== 'function') return null;
+                var el = angular.element(artigo);
+                var scope = (typeof el.scope === 'function') ? el.scope() : null;
+                for (var profundidade = 0; profundidade < 8 && scope; profundidade += 1) {
+                    var objeto = acharObjetoQuestaoNoScope(scope);
+                    if (objeto && objeto.idQuestao != null && payloadDeclaraCampoGabarito(objeto)) {
+                        var chave = String(objeto.idQuestao);
+                        var letra = extrairGabaritoDoPayload(objeto);
+                        if (letra) {
+                            this.cache[chave] = letra;
+                            delete this.cacheSemGabarito[chave];
+                        } else if (payloadConfirmaAusenciaGabarito(objeto)) {
+                            this.cacheSemGabarito[chave] = true;
+                        } else {
+                            scope = scope.$parent;
+                            continue;
+                        }
+                        this.payloadsVistos += 1;
+                        return { questaoId: chave, letra: letra || null };
+                    }
+                    scope = scope.$parent;
+                }
+                return null;
+            } catch (e) {
+                return null;
+            }
+        },
+        // Decisão para a coleta: 'com-gabarito' (letra pronta) |
+        // 'sem-gabarito' (payload ou scope confirmaram ausência) |
+        // 'desconhecido' (nenhuma das fontes falou ainda).
+        consultarGabaritoQuestao: function (questaoId, artigo) {
+            var chave = String(questaoId == null ? '' : questaoId);
+            if (!chave) return { estado: 'desconhecido' };
+            if (this.cache[chave]) return { estado: 'com-gabarito', letra: this.cache[chave] };
+            if (this.cacheSemGabarito[chave]) return { estado: 'sem-gabarito' };
+            var doScope = this.lerGabaritoDoScope(artigo);
+            if (doScope && doScope.questaoId) {
+                if (this.cache[doScope.questaoId]) return { estado: 'com-gabarito', letra: this.cache[doScope.questaoId] };
+                if (this.cacheSemGabarito[doScope.questaoId]) return { estado: 'sem-gabarito' };
+            }
+            return { estado: 'desconhecido' };
+        },
         instalar: function () {
             if (this.instalado) return;
             this.instalado = true;
             var interceptor = this;
+            var configGlobal = (typeof CONFIG === 'object' && CONFIG) || {};
 
             // 1. Interceptação camuflada de XMLHttpRequest
+            //    A URL é guardada em WeakMap (invisível na enumeração de
+            //    propriedades do XHR; antes era uma propriedade própria
+            //    enumerável, um rastro detectável).
             if (typeof XMLHttpRequest !== 'undefined' && XMLHttpRequest.prototype) {
                 var origOpen = XMLHttpRequest.prototype.open;
                 var origSend = XMLHttpRequest.prototype.send;
 
                 var novoOpen = function (method, url) {
-                    this.__tecFabricaUrl = String(url || '');
+                    if (urlsDeXhr) {
+                        try { urlsDeXhr.set(this, String(url || '')); } catch (e) {}
+                    }
                     return origOpen.apply(this, arguments);
                 };
                 camuflarFuncaoNativa(novoOpen, origOpen, 'open');
@@ -2317,11 +2705,15 @@
 
                 var novoSend = function () {
                     var xhr = this;
+                    var url = '';
+                    if (urlsDeXhr) {
+                        try { url = urlsDeXhr.get(xhr) || ''; } catch (e) {}
+                    }
                     this.addEventListener('load', function () {
                         try {
                             if (xhr.status === 200 && xhr.responseText) {
                                 var data = JSON.parse(xhr.responseText);
-                                interceptor.processarRespostaJson(xhr.__tecFabricaUrl, data);
+                                interceptor.processarRespostaJson(url, data);
                             }
                         } catch (e) {}
                     });
@@ -2331,8 +2723,11 @@
                 XMLHttpRequest.prototype.send = novoSend;
             }
 
-            // 2. Interceptação passiva de window.fetch caso utilizado
-            if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
+            // 2. Interceptação passiva de window.fetch — desligada por padrão:
+            //    o AngularJS do site usa XHR, e cada patch extra é superfície
+            //    de detecção sem benefício. Reativa com CONFIG.interceptarFetch.
+            if (configGlobal.interceptarFetch === true &&
+                typeof window !== 'undefined' && typeof window.fetch === 'function') {
                 var origFetch = window.fetch;
                 var novoFetch = function () {
                     var args = arguments;
@@ -2357,7 +2752,9 @@
             }
         },
         obterPorQuestaoId: function (id) { return this.cache[String(id)] || null; },
-        obterPorIndex: function (cadernoId, index) { return this.cachePorIndex[String(cadernoId) + ':' + String(index)] || null; }
+        obterPorIndex: function (cadernoId, index) { return this.cachePorIndex[String(cadernoId) + ':' + String(index)] || null; },
+        obterSemGabaritoPorQuestaoId: function (id) { return this.cacheSemGabarito[String(id)] === true; },
+        obterSemGabaritoPorIndex: function (cadernoId, index) { return this.semGabaritoPorIndex[String(cadernoId) + ':' + String(index)] === true; }
     };
 
     /* =====================================================================
@@ -3292,8 +3689,37 @@
                         salvas: colecao.length
                     }
                 });
-            } else if (modoStealth) {
+} else if (modoStealth) {
                 // ================= MODO STEALTH OFFLINE (ZERO RESOLUÇÃO / ZERO COTA) =================
+                // Decisão rápida: quando o payload interceptado (ou o scope
+                // Angular) JÁ CONFIRMOU que a questão não tem gabarito, ela é
+                // coletada em ~0,5s sem leitura, scroll ou clique. Questões com
+                // gabarito mantêm o ritmo de leitura humano (cadência mista).
+                var cfgRapido = configuracaoRapidaAtual();
+                var decisaoRapida = false;
+                if (cfgRapido.rapidoSemGabaritoAtivo !== false &&
+                    typeof GabaritoInterceptor !== 'undefined' && GabaritoInterceptor.payloadsVistos > 0) {
+                    var consulta = GabaritoInterceptor.consultarGabaritoQuestao(questao.id, artigoQuestaoAtual());
+                    if (consulta.estado === 'desconhecido') {
+                        await aguardarPayloadQuestao(questao.id, cfgRapido.rapidoCacheEsperaMs || 2000);
+                        if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
+                        consulta = GabaritoInterceptor.consultarGabaritoQuestao(questao.id, artigoQuestaoAtual());
+                    }
+                    if (consulta.estado === 'sem-gabarito') {
+                        decisaoRapida = true;
+                    } else if (consulta.estado === 'com-gabarito') {
+                        log('Questão com gabarito interceptado; mantendo ritmo de leitura.', {
+                            tipo: 'decisao', fase: 'coletando',
+                            contexto: { cadernoId: caderno.id, questaoId: questao.id, numero: questao.number, letra: consulta.letra, metodo: 'rapido-ignorado' }
+                        });
+                    }
+                }
+                if (decisaoRapida) {
+                    var rapido = await coletarQuestaoRapida(questao, caderno, colecao, porId, meuCiclo);
+                    if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return;
+                    if (rapido && rapido.fim) break;
+                    continue;
+                }
                 var doCacheStealth = mapearGabaritoParaOpcoes(GabaritoInterceptor.obterPorQuestaoId(questao.id), questao.options || []);
                 var resVisivelStealth = document.querySelector('.questao-enunciado-resolucao-errou, .questao-enunciado-resolucao-acertou');
                 var gvStealth = resVisivelStealth ? mapearGabaritoParaOpcoes(lerGabaritoDoTexto(resVisivelStealth.innerText || ''), questao.options || []) : null;
@@ -3578,6 +4004,207 @@
             tipo: 'resultado', nivel: 'ok', fase: 'coletando',
             contexto: { cadernoId: caderno.id, titulo: caderno.titulo, salvas: caderno.questoes.length, total: caderno.total, pendentes: caderno.questoes.filter(function (q) { return !q.answer; }).length }
         });
+    }
+
+    /* =====================================================================
+     * MODO RÁPIDO — questões confirmadamente SEM gabarito em ~0,5s
+     * (leitura passiva de caches/scope; navegação pipelined; jitter +
+     * rajadas para não gerar cadência mecânica; pausa em aba oculta).
+     * =================================================================== */
+    function artigoQuestaoAtual() {
+        try {
+            if (typeof document === 'undefined' || typeof document.querySelector !== 'function') return null;
+            return document.querySelector('article.questao-enunciado');
+        } catch (e) { return null; }
+    }
+
+    function configuracaoRapidaAtual() {
+        var padroes = (typeof CONFIG === 'object' && CONFIG) || {};
+        var persistida = (typeof estado === 'object' && estado && estado.config &&
+            typeof estado.config === 'object') ? estado.config : {};
+        return Object.assign({}, padroes, persistida);
+    }
+
+    function aguardarPayloadQuestao(questaoId, tempoLimiteMs) {
+        return new Promise(function (resolve) {
+            var chave = String(questaoId);
+            var inicio = Date.now();
+            var limite = tempoLimiteMs || 2000;
+            workerTick(80, function () {
+                if (estado.status !== 'rodando') return true;
+                if (Date.now() - inicio >= limite) return true;
+                try {
+                    if (typeof GabaritoInterceptor === 'undefined') return true;
+                    if (GabaritoInterceptor.cache[chave]) return true;
+                    if (GabaritoInterceptor.cacheSemGabarito[chave]) return true;
+                } catch (e) { return true; }
+                return false;
+            }, limite + 500, function (ok) {
+                resolve(ok);
+            });
+        });
+    }
+
+    function aguardarAbaVisivel() {
+        return new Promise(function (resolve) {
+            try {
+                if (typeof document === 'undefined' || document.hidden !== true) { resolve(true); return; }
+            } catch (e) { resolve(true); return; }
+            workerTick(500, function () {
+                try {
+                    if (document.hidden !== true) return true;
+                } catch (e) { return true; }
+                return false;
+            }, 0, function (ok) { resolve(ok); });
+        });
+    }
+
+    // Jitter gaussiano (Box-Muller) entre min e max: cadência irregular,
+    // sem padrão uniforme identificável no fluxo de navegação.
+    function jitterRapido(cfg) {
+        var min = Math.max(50, Number(cfg.rapidoDelayMin) || 300);
+        var max = Math.max(min + 1, Number(cfg.rapidoDelayMax) || 800);
+        var media = (min + max) / 2;
+        var desvio = Math.max(25, (max - min) / 4);
+        var base = 0;
+        if (typeof StealthEngine !== 'undefined' && typeof StealthEngine.boxMullerRandom === 'function') {
+            base = StealthEngine.boxMullerRandom(media, desvio);
+        } else {
+            base = media + ((Math.random() + Math.random() + Math.random() - 1.5) / 1.5) * desvio;
+        }
+        return Math.min(max, Math.max(min, Math.round(base)));
+    }
+
+    async function coletarQuestaoRapida(questao, caderno, colecao, porId, meuCiclo) {
+        var cfg = configuracaoRapidaAtual();
+        if (porId.has(String(questao.id))) {
+            log('Questão já existe na biblioteca; coleta rápida ignorada.', {
+                tipo: 'decisao', nivel: 'ok', fase: 'coletando',
+                contexto: { cadernoId: caderno.id, questaoId: questao.id, numero: questao.number, salvas: colecao.length }
+            });
+            return { fim: false };
+        }
+
+        if (cfg.rapidoPausaAbaOculta !== false) {
+            await aguardarAbaVisivel();
+            if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return { fim: true };
+        }
+
+        questao.answer = '';
+        questao.answerSource = 'sem-gabarito';
+        colecao.push(questao);
+        porId.add(String(questao.id));
+        questoesPorId.set(String(questao.id), questao);
+        caderno.questoes = colecao;
+        caderno.coletadas = colecao.length;
+        salvarEstado(true);
+        UI.renderBiblioteca();
+        UI.renderProgresso();
+        if (typeof GabaritoInterceptor !== 'undefined' && GabaritoInterceptor.estatisticas) {
+            GabaritoInterceptor.estatisticas.viaRapido += 1;
+        }
+        log('Questão sem gabarito coletada em modo rápido.', {
+            tipo: 'resultado', nivel: 'ok', fase: 'coletando',
+            contexto: { cadernoId: caderno.id, questaoId: questao.id, numero: questao.number, gabarito: '(sem gabarito)', metodo: 'rapido', salvas: colecao.length }
+        });
+
+        // Pausa biológica curta do modo rápido (bloco próprio, não contamina
+        // o ritmo de leitura das questões com gabarito).
+        if (cfg.rapidoCoffeeBreakAtivo !== false && typeof StealthEngine !== 'undefined' &&
+            typeof StealthEngine.precisaDescansoBiologico === 'function') {
+            var cfgDescanso = {
+                stealthCoffeeBreakAtivo: true,
+                stealthIntervaloCoffeeBreakMin: cfg.rapidoCoffeeBreakIntervaloMin || 30,
+                stealthIntervaloCoffeeBreakMax: cfg.rapidoCoffeeBreakIntervaloMax || 60,
+                stealthCoffeeBreakDuracaoMedia: cfg.rapidoCoffeeBreakDuracaoMedia || 9000
+            };
+            if (StealthEngine.precisaDescansoBiologico(cfgDescanso)) {
+                var duracao = StealthEngine.calcularTempoDescansoMs(cfgDescanso);
+                log('Pausa biológica do modo rápido iniciada (~' + Math.round(duracao / 1000) + 's).', {
+                    tipo: 'observacao', fase: 'coletando',
+                    contexto: { cadernoId: caderno.id, duracaoSeg: Math.round(duracao / 1000), questoesColetadas: colecao.length, modo: 'rapido' }
+                });
+                var fimDescanso = Date.now() + duracao;
+                while (Date.now() < fimDescanso && estado.status === 'rodando') {
+                    if (meuCiclo !== cicloExecucaoId) return { fim: true };
+                    UI.setStatus('⚡ Descanso rápido: ' + Math.max(1, Math.round((fimDescanso - Date.now()) / 1000)) + 's restantes...');
+                    await workerSleep(1000);
+                }
+                if (typeof StealthEngine.resetarBlocoDescanso === 'function') {
+                    StealthEngine.resetarBlocoDescanso(cfgDescanso);
+                }
+                if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return { fim: true };
+            }
+        }
+        if (typeof StealthEngine !== 'undefined' && typeof StealthEngine.registrarQuestaoColetada === 'function') {
+            StealthEngine.registrarQuestaoColetada();
+        }
+
+        // Pipelining: a navegação para a próxima questão já começa aqui; o
+        // jitter seguinte acontece em paralelo ao carregamento do XHR do site.
+        var idAnterior = lerQuestaoIdAtual();
+        var assinaturaAnterior = assinaturaQuestao();
+        var numeroAlvo = questao.number + 1;
+        var posAlvo = lerPosicao();
+        if (posAlvo && posAlvo.posicao && posAlvo.total && numeroAlvo > posAlvo.total) {
+            return { fim: true };
+        }
+        if (!navegarQuestao(numeroAlvo)) {
+            log('Modo rápido: navegação para a próxima questão falhou.', {
+                tipo: 'erro', nivel: 'erro', fase: 'coletando',
+                contexto: { cadernoId: caderno.id, questaoId: questao.id, numero: questao.number, proximo: numeroAlvo }
+            });
+            return { fim: true };
+        }
+        UI.setStatus('⚡ Coletando rápida ' + numeroAlvo + '/' + (posAlvo ? posAlvo.total : '?') + ' (sem gabarito)...');
+        var pausaJitter = jitterRapido(cfg);
+        await workerSleep(pausaJitter);
+        if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return { fim: true };
+
+        // Espera a próxima questão com poll rápido; uma tentativa extra caso
+        // o primeiro carregamento estoure o prazo.
+        var carregada = await new Promise(function (resolve) {
+            aguardarQuestaoMudar(idAnterior, assinaturaAnterior, resolve, {
+                interval: cfg.rapidoPollInterval || 120,
+                timeout: 8000
+            });
+        });
+        if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return { fim: true };
+        if (!carregada && !porId.has(String(numeroAlvo))) {
+            var posAntes = lerPosicao();
+            var sentinel = (posAntes && posAntes.posicao === numeroAlvo) ? '' : (lerQuestaoIdAtual() || '');
+            var assinaturaRetry = assinaturaQuestao();
+            if (navegarQuestao(numeroAlvo)) {
+                carregada = await new Promise(function (resolve) {
+                    aguardarQuestaoMudar(sentinel, assinaturaRetry, resolve, {
+                        interval: cfg.rapidoPollInterval || 120,
+                        timeout: 8000
+                    });
+                });
+                if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return { fim: true };
+            }
+        }
+        if (!carregada) {
+            log('Modo rápido: próxima questão não carregou a tempo; deixando para a passada de retry.', {
+                tipo: 'resultado', nivel: 'warn', fase: 'coletando',
+                contexto: { cadernoId: caderno.id, questaoId: questao.id, numero: questao.number, proximo: numeroAlvo }
+            });
+        }
+
+        // Micro-rolagem ocasional (10%) mantém o gesto humano sem custo de tempo.
+        if (Math.random() < 0.1 && typeof StealthEngine !== 'undefined' &&
+            typeof StealthEngine.scrollOrganico === 'function') {
+            try {
+                var artEl = artigoQuestaoAtual();
+                if (artEl && typeof artEl.getBoundingClientRect === 'function' && typeof window !== 'undefined') {
+                    var rectArt = artEl.getBoundingClientRect();
+                    var destino = (window.scrollY || 0) + rectArt.top + Math.min(rectArt.height * 0.4, 400);
+                    await StealthEngine.scrollOrganico(destino, 400);
+                    if (meuCiclo !== cicloExecucaoId || estado.status !== 'rodando') return { fim: true };
+                }
+            } catch (e) {}
+        }
+        return { fim: false };
     }
     /* =====================================================================
      * ORQUESTRADOR — máquina de fases retomável por navegação
@@ -4630,13 +5257,14 @@
     var selectedAnswer = answerLetter(attempt.answers[question.id]);
     var confirmed = !!(attempt.confirmed || {})[question.id];
     var meta = [question.bank, question.year, question.organization, question.role, question.vacancy, question.subject, question.topic].filter(Boolean).map(function (value) { return '<span class="tag">' + escapeValue(value) + "</span>"; }).join("");
-    var body = question.statementHtml || ("<p>" + escapeValue(question.statement) + "</p>");
+    var body = question.statementHtml ? sanitizePrintStatementHtml(question.statementHtml) : ("<p>" + escapeValue(question.statement) + "</p>");
     var alternatives = (question.options || []).map(function (option) {
       var selected = selectedAnswer === option.letter;
       var correct = confirmed && !!correctAnswer && correctAnswer === option.letter;
       var incorrect = confirmed && selected && !!correctAnswer && selectedAnswer !== correctAnswer;
       var eliminated = !!(attempt.eliminated[question.id] || {})[option.letter];
-      return '<button class="option ' + (selected ? "selected " : "") + (correct ? "correct " : "") + (incorrect ? "incorrect " : "") + (eliminated ? "eliminated " : "") + '" aria-pressed="' + (selected ? "true" : "false") + '" data-letter="' + escapeValue(option.letter) + '">' + (option.html || ("<strong>" + escapeValue(option.letter) + ")</strong> " + escapeValue(option.text))) + "</button>";
+      var optionBody = option.html ? sanitizePrintStatementHtml(option.html) : ("<strong>" + escapeValue(option.letter) + ")</strong> " + escapeValue(option.text));
+      return '<button class="option ' + (selected ? "selected " : "") + (correct ? "correct " : "") + (incorrect ? "incorrect " : "") + (eliminated ? "eliminated " : "") + '" aria-pressed="' + (selected ? "true" : "false") + '" data-letter="' + escapeValue(option.letter) + '">' + optionBody + "</button>";
     }).join("");
     var feedbackClass = "feedback";
     var feedbackText = "Selecione uma alternativa e clique em Responder para confirmar.";
@@ -5423,9 +6051,23 @@
     ].join('');
 
     function criarUI() {
-        var style = document.createElement('style');
-        style.textContent = UI_CSS;
-        document.head.appendChild(style);
+        var sombra = null;
+        var hospedeiro = null;
+        try {
+            if (typeof document !== 'undefined' && document.createElement && document.body &&
+                typeof document.body.attachShadow === 'function') {
+                hospedeiro = document.createElement('div');
+                hospedeiro.id = 'tf-host';
+                sombra = hospedeiro.attachShadow({ mode: 'closed' });
+            }
+        } catch (e) {
+            sombra = null;
+            hospedeiro = null;
+        }
+
+        var estilo = document.createElement('style');
+        estilo.textContent = UI_CSS;
+        var destino = sombra || document.head;
 
         painelEl = document.createElement('div');
         painelEl.id = 'tec-fabrica';
@@ -5445,7 +6087,19 @@
             '  <button class="tf-aba" data-aba="log">Log</button>' +
             '</div>' +
             '<div class="tf-corpo" id="tf-corpo"></div>';
-        document.body.appendChild(painelEl);
+
+        // O painel vive dentro de um Shadow DOM fechado: seletores globais do
+        // site não atravessam o shadow root. Isto é encapsulamento, não uma
+        // fronteira de segurança; o host continua visível no DOM externo.
+        // Sem suporte (ex.: mocks de teste), preserva o comportamento antigo.
+        if (sombra) {
+            sombra.appendChild(estilo);
+            sombra.appendChild(painelEl);
+            document.body.appendChild(hospedeiro);
+        } else {
+            document.head.appendChild(estilo);
+            document.body.appendChild(painelEl);
+        }
 
         painelEl.querySelectorAll('.tf-aba').forEach(function (b) {
             b.addEventListener('click', function () { mostrarAba(b.getAttribute('data-aba')); });
@@ -5460,6 +6114,16 @@
         });
 
         mostrarAba('plano');
+    }
+
+    function buscarNaUI(seletor) {
+        if (painelEl && typeof painelEl.querySelector === 'function') {
+            return painelEl.querySelector(seletor);
+        }
+        if (typeof document !== 'undefined' && typeof document.querySelector === 'function') {
+            return document.querySelector(seletor);
+        }
+        return null;
     }
 
     function alternarPainel() {
@@ -5555,6 +6219,12 @@
             '<option value="leitura-dinamica"' + (perfilAtual === 'leitura-dinamica' ? ' selected' : '') + '>Leitura Dinâmica (350 WPM · Rápido Seguro)</option>' +
             '</select></div>' +
             '<div class="tf-linha"><input type="checkbox" id="tf-coffee-break" ' + (c.stealthCoffeeBreakAtivo !== false ? 'checked' : '') + '><label>Pausas biológicas periódicas (Coffee Break)</label></div>' +
+            '<div class="tf-secao-titulo">Modo rápido (questões sem gabarito)</div>' +
+            '<div class="tf-linha"><input type="checkbox" id="tf-rapido-ativo" ' + (c.rapidoSemGabaritoAtivo !== false ? 'checked' : '') + '><label>Coletar questões sem gabarito em ~0,5s (cadência mista)</label></div>' +
+            '<div class="tf-linha"><label style="width:130px">Jitter (s)</label><input type="text" id="tf-rapido-delay" value="' + (Number(c.rapidoDelayMin) || CONFIG.rapidoDelayMin) / 1000 + '-' + (Number(c.rapidoDelayMax) || CONFIG.rapidoDelayMax) / 1000 + '" placeholder="0.3-0.8"></div>' +
+            '<div class="tf-linha"><input type="checkbox" id="tf-rapido-cb" ' + (c.rapidoCoffeeBreakAtivo !== false ? 'checked' : '') + '><label>Pausas biológicas curtas no modo rápido</label></div>' +
+            '<div class="tf-linha"><input type="checkbox" id="tf-rapido-oculta" ' + (c.rapidoPausaAbaOculta !== false ? 'checked' : '') + '><label>Pausar se a aba ficar oculta</label></div>' +
+            '<div class="tf-resumo">O modo rápido só atua após a interceptação confirmar (via rede ou escopo Angular) que a questão não tem gabarito; questões com gabarito seguem no ritmo de leitura.</div>' +
             '<div class="tf-resumo">O Modo Furtivo Offline simula a velocidade real de leitura humana (WPM) e rolagem suave, sem enviar resoluções nem consumir cota diária.</div>' +
             '<div class="tf-secao-titulo">Opções avançadas</div>' +
             '<div class="tf-linha"><input type="checkbox" id="tf-coletar" ' + ((c.coletarAposCriar !== false) ? 'checked' : '') + '><label>Copiar questões após criar cada caderno</label></div>' +
@@ -5726,7 +6396,7 @@
     }
 
     function anexarLog(evento) {
-        var box = document.getElementById('tf-log-box');
+        var box = buscarNaUI('#tf-log-box');
         if (box) {
             box.innerHTML = renderEventosLog(Array.isArray(estado.logs) ? estado.logs : [evento]);
             box.scrollTop = box.scrollHeight;
@@ -5757,6 +6427,16 @@
                         perfilStealth: CONFIG.perfilStealth,
                         stealthWpm: CONFIG.stealthWpm,
                         stealthCoffeeBreakAtivo: CONFIG.stealthCoffeeBreakAtivo,
+                        rapidoSemGabaritoAtivo: CONFIG.rapidoSemGabaritoAtivo,
+                        rapidoDelayMin: CONFIG.rapidoDelayMin,
+                        rapidoDelayMax: CONFIG.rapidoDelayMax,
+                        rapidoPollInterval: CONFIG.rapidoPollInterval,
+                        rapidoCacheEsperaMs: CONFIG.rapidoCacheEsperaMs,
+                        rapidoCoffeeBreakAtivo: CONFIG.rapidoCoffeeBreakAtivo,
+                        rapidoCoffeeBreakIntervaloMin: CONFIG.rapidoCoffeeBreakIntervaloMin,
+                        rapidoCoffeeBreakIntervaloMax: CONFIG.rapidoCoffeeBreakIntervaloMax,
+                        rapidoCoffeeBreakDuracaoMedia: CONFIG.rapidoCoffeeBreakDuracaoMedia,
+                        rapidoPausaAbaOculta: CONFIG.rapidoPausaAbaOculta,
                         banks: CONFIG.banks.slice(),
                         years: CONFIG.years.slice()
                     };
@@ -5800,6 +6480,18 @@
                 }
                 var cbEl = corpo.querySelector('#tf-coffee-break');
                 if (cbEl) cfg.stealthCoffeeBreakAtivo = cbEl.checked;
+                var rapidoAtivoEl = corpo.querySelector('#tf-rapido-ativo');
+                if (rapidoAtivoEl) cfg.rapidoSemGabaritoAtivo = rapidoAtivoEl.checked;
+                var rapidoDelayEl = corpo.querySelector('#tf-rapido-delay');
+                if (rapidoDelayEl) {
+                    var rapidoPartes = rapidoDelayEl.value.split('-');
+                    cfg.rapidoDelayMin = Math.max(100, Math.round((parseFloat(rapidoPartes[0]) || 0.3) * 1000));
+                    cfg.rapidoDelayMax = Math.max(cfg.rapidoDelayMin, Math.round((parseFloat(rapidoPartes[1]) || 0.8) * 1000));
+                }
+                var rapidoCbEl = corpo.querySelector('#tf-rapido-cb');
+                if (rapidoCbEl) cfg.rapidoCoffeeBreakAtivo = rapidoCbEl.checked;
+                var rapidoOcultaEl = corpo.querySelector('#tf-rapido-oculta');
+                if (rapidoOcultaEl) cfg.rapidoPausaAbaOculta = rapidoOcultaEl.checked;
                 cfg.banks = corpo.querySelector('#tf-bancas').value.split('\n').map(clean).filter(Boolean);
                 cfg.years = corpo.querySelector('#tf-anos').value.split(',').map(function (y) { return parseInt(y, 10); }).filter(function (y) { return y >= 1900 && y <= 2100; });
                 if (cfg.banks.length < 1) throw new Error('Informe ao menos uma banca.');
@@ -6033,13 +6725,13 @@
     }
 
     function atualizarArvorePlano() {
-        var arvoreEl = document.getElementById('tf-plano-arvore');
+        var arvoreEl = buscarNaUI('#tf-plano-arvore');
         if (arvoreEl && estado.plano) arvoreEl.innerHTML = PLANO_UI_MODEL.renderArvore(estado.plano, statusMaterias(estado));
     }
 
     function atualizarCronometriaExec() {
-        var elRest = document.getElementById('tf-restantes-exec');
-        var elEta = document.getElementById('tf-eta-exec');
+        var elRest = buscarNaUI('#tf-restantes-exec');
+        var elEta = buscarNaUI('#tf-eta-exec');
         if (!elRest && !elEta) return;
         var resumo = estimarRestanteCriacao();
         if (elRest) elRest.textContent = String(resumo.restantes);
@@ -6055,7 +6747,7 @@
     UI.setStatus = function (msg) {
         estado.mensagem = msg;
         salvarEstado();
-        var el = document.getElementById('tf-msg');
+        var el = buscarNaUI('#tf-msg');
         if (el) el.textContent = msg;
     };
     UI.renderProgresso = function () {

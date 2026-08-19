@@ -46,7 +46,7 @@ function carregar() {
     navigator,
     XMLHttpRequest: XHR,
     URL,
-    location: { href: 'https://www.tecconcursos.com.br/questoes/1' },
+    location: { href: 'https://www.tecconcursos.com.br/questoes/1', origin: 'https://www.tecconcursos.com.br' },
     Promise,
     Object,
     Array,
@@ -92,4 +92,18 @@ test('globals internos não são enumeráveis nem reconfiguráveis', () => {
   assert.equal(Object.prototype.propertyIsEnumerable.call(window, '__testeInterno'), false);
   assert.equal(Object.getOwnPropertyDescriptor(window, '__testeInterno').configurable, false);
   assert.equal(Object.getOwnPropertyDescriptor(window, '__testeInterno').writable, false);
+});
+
+test('heurística de caminho não bloqueia endpoint legítimo da mesma origem', async () => {
+  const { window, fetches } = carregar();
+  await window.fetch('/api/events');
+  assert.equal(fetches.length, 1);
+  assert.equal(fetches[0], '/api/events');
+});
+
+test('navegador normal não ganha propriedade webdriver própria', () => {
+  const { context } = carregar();
+  assert.equal(Object.prototype.hasOwnProperty.call(context.navigator, 'webdriver'), false);
+  context.mascararFingerprint();
+  assert.equal(Object.prototype.hasOwnProperty.call(context.navigator, 'webdriver'), false);
 });

@@ -111,9 +111,23 @@
     ].join('');
 
     function criarUI() {
-        var style = document.createElement('style');
-        style.textContent = UI_CSS;
-        document.head.appendChild(style);
+        var sombra = null;
+        var hospedeiro = null;
+        try {
+            if (typeof document !== 'undefined' && document.createElement && document.body &&
+                typeof document.body.attachShadow === 'function') {
+                hospedeiro = document.createElement('div');
+                hospedeiro.id = 'tf-host';
+                sombra = hospedeiro.attachShadow({ mode: 'closed' });
+            }
+        } catch (e) {
+            sombra = null;
+            hospedeiro = null;
+        }
+
+        var estilo = document.createElement('style');
+        estilo.textContent = UI_CSS;
+        var destino = sombra || document.head;
 
         painelEl = document.createElement('div');
         painelEl.id = 'tec-fabrica';
@@ -133,7 +147,19 @@
             '  <button class="tf-aba" data-aba="log">Log</button>' +
             '</div>' +
             '<div class="tf-corpo" id="tf-corpo"></div>';
-        document.body.appendChild(painelEl);
+
+        // O painel vive dentro de um Shadow DOM fechado: seletores globais do
+        // site não atravessam o shadow root. Isto é encapsulamento, não uma
+        // fronteira de segurança; o host continua visível no DOM externo.
+        // Sem suporte (ex.: mocks de teste), preserva o comportamento antigo.
+        if (sombra) {
+            sombra.appendChild(estilo);
+            sombra.appendChild(painelEl);
+            document.body.appendChild(hospedeiro);
+        } else {
+            document.head.appendChild(estilo);
+            document.body.appendChild(painelEl);
+        }
 
         painelEl.querySelectorAll('.tf-aba').forEach(function (b) {
             b.addEventListener('click', function () { mostrarAba(b.getAttribute('data-aba')); });
@@ -148,6 +174,16 @@
         });
 
         mostrarAba('plano');
+    }
+
+    function buscarNaUI(seletor) {
+        if (painelEl && typeof painelEl.querySelector === 'function') {
+            return painelEl.querySelector(seletor);
+        }
+        if (typeof document !== 'undefined' && typeof document.querySelector === 'function') {
+            return document.querySelector(seletor);
+        }
+        return null;
     }
 
     function alternarPainel() {
@@ -243,6 +279,12 @@
             '<option value="leitura-dinamica"' + (perfilAtual === 'leitura-dinamica' ? ' selected' : '') + '>Leitura Dinâmica (350 WPM · Rápido Seguro)</option>' +
             '</select></div>' +
             '<div class="tf-linha"><input type="checkbox" id="tf-coffee-break" ' + (c.stealthCoffeeBreakAtivo !== false ? 'checked' : '') + '><label>Pausas biológicas periódicas (Coffee Break)</label></div>' +
+            '<div class="tf-secao-titulo">Modo rápido (questões sem gabarito)</div>' +
+            '<div class="tf-linha"><input type="checkbox" id="tf-rapido-ativo" ' + (c.rapidoSemGabaritoAtivo !== false ? 'checked' : '') + '><label>Coletar questões sem gabarito em ~0,5s (cadência mista)</label></div>' +
+            '<div class="tf-linha"><label style="width:130px">Jitter (s)</label><input type="text" id="tf-rapido-delay" value="' + (Number(c.rapidoDelayMin) || CONFIG.rapidoDelayMin) / 1000 + '-' + (Number(c.rapidoDelayMax) || CONFIG.rapidoDelayMax) / 1000 + '" placeholder="0.3-0.8"></div>' +
+            '<div class="tf-linha"><input type="checkbox" id="tf-rapido-cb" ' + (c.rapidoCoffeeBreakAtivo !== false ? 'checked' : '') + '><label>Pausas biológicas curtas no modo rápido</label></div>' +
+            '<div class="tf-linha"><input type="checkbox" id="tf-rapido-oculta" ' + (c.rapidoPausaAbaOculta !== false ? 'checked' : '') + '><label>Pausar se a aba ficar oculta</label></div>' +
+            '<div class="tf-resumo">O modo rápido só atua após a interceptação confirmar (via rede ou escopo Angular) que a questão não tem gabarito; questões com gabarito seguem no ritmo de leitura.</div>' +
             '<div class="tf-resumo">O Modo Furtivo Offline simula a velocidade real de leitura humana (WPM) e rolagem suave, sem enviar resoluções nem consumir cota diária.</div>' +
             '<div class="tf-secao-titulo">Opções avançadas</div>' +
             '<div class="tf-linha"><input type="checkbox" id="tf-coletar" ' + ((c.coletarAposCriar !== false) ? 'checked' : '') + '><label>Copiar questões após criar cada caderno</label></div>' +
@@ -414,7 +456,7 @@
     }
 
     function anexarLog(evento) {
-        var box = document.getElementById('tf-log-box');
+        var box = buscarNaUI('#tf-log-box');
         if (box) {
             box.innerHTML = renderEventosLog(Array.isArray(estado.logs) ? estado.logs : [evento]);
             box.scrollTop = box.scrollHeight;
@@ -445,6 +487,16 @@
                         perfilStealth: CONFIG.perfilStealth,
                         stealthWpm: CONFIG.stealthWpm,
                         stealthCoffeeBreakAtivo: CONFIG.stealthCoffeeBreakAtivo,
+                        rapidoSemGabaritoAtivo: CONFIG.rapidoSemGabaritoAtivo,
+                        rapidoDelayMin: CONFIG.rapidoDelayMin,
+                        rapidoDelayMax: CONFIG.rapidoDelayMax,
+                        rapidoPollInterval: CONFIG.rapidoPollInterval,
+                        rapidoCacheEsperaMs: CONFIG.rapidoCacheEsperaMs,
+                        rapidoCoffeeBreakAtivo: CONFIG.rapidoCoffeeBreakAtivo,
+                        rapidoCoffeeBreakIntervaloMin: CONFIG.rapidoCoffeeBreakIntervaloMin,
+                        rapidoCoffeeBreakIntervaloMax: CONFIG.rapidoCoffeeBreakIntervaloMax,
+                        rapidoCoffeeBreakDuracaoMedia: CONFIG.rapidoCoffeeBreakDuracaoMedia,
+                        rapidoPausaAbaOculta: CONFIG.rapidoPausaAbaOculta,
                         banks: CONFIG.banks.slice(),
                         years: CONFIG.years.slice()
                     };
@@ -488,6 +540,18 @@
                 }
                 var cbEl = corpo.querySelector('#tf-coffee-break');
                 if (cbEl) cfg.stealthCoffeeBreakAtivo = cbEl.checked;
+                var rapidoAtivoEl = corpo.querySelector('#tf-rapido-ativo');
+                if (rapidoAtivoEl) cfg.rapidoSemGabaritoAtivo = rapidoAtivoEl.checked;
+                var rapidoDelayEl = corpo.querySelector('#tf-rapido-delay');
+                if (rapidoDelayEl) {
+                    var rapidoPartes = rapidoDelayEl.value.split('-');
+                    cfg.rapidoDelayMin = Math.max(100, Math.round((parseFloat(rapidoPartes[0]) || 0.3) * 1000));
+                    cfg.rapidoDelayMax = Math.max(cfg.rapidoDelayMin, Math.round((parseFloat(rapidoPartes[1]) || 0.8) * 1000));
+                }
+                var rapidoCbEl = corpo.querySelector('#tf-rapido-cb');
+                if (rapidoCbEl) cfg.rapidoCoffeeBreakAtivo = rapidoCbEl.checked;
+                var rapidoOcultaEl = corpo.querySelector('#tf-rapido-oculta');
+                if (rapidoOcultaEl) cfg.rapidoPausaAbaOculta = rapidoOcultaEl.checked;
                 cfg.banks = corpo.querySelector('#tf-bancas').value.split('\n').map(clean).filter(Boolean);
                 cfg.years = corpo.querySelector('#tf-anos').value.split(',').map(function (y) { return parseInt(y, 10); }).filter(function (y) { return y >= 1900 && y <= 2100; });
                 if (cfg.banks.length < 1) throw new Error('Informe ao menos uma banca.');
@@ -721,13 +785,13 @@
     }
 
     function atualizarArvorePlano() {
-        var arvoreEl = document.getElementById('tf-plano-arvore');
+        var arvoreEl = buscarNaUI('#tf-plano-arvore');
         if (arvoreEl && estado.plano) arvoreEl.innerHTML = PLANO_UI_MODEL.renderArvore(estado.plano, statusMaterias(estado));
     }
 
     function atualizarCronometriaExec() {
-        var elRest = document.getElementById('tf-restantes-exec');
-        var elEta = document.getElementById('tf-eta-exec');
+        var elRest = buscarNaUI('#tf-restantes-exec');
+        var elEta = buscarNaUI('#tf-eta-exec');
         if (!elRest && !elEta) return;
         var resumo = estimarRestanteCriacao();
         if (elRest) elRest.textContent = String(resumo.restantes);
@@ -743,7 +807,7 @@
     UI.setStatus = function (msg) {
         estado.mensagem = msg;
         salvarEstado();
-        var el = document.getElementById('tf-msg');
+        var el = buscarNaUI('#tf-msg');
         if (el) el.textContent = msg;
     };
     UI.renderProgresso = function () {

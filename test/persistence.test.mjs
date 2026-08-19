@@ -111,16 +111,19 @@ test('reconstrução v2 preserva logs no estado e não na biblioteca', () => {
 test('parser de migração aceita JSON v1 válido e rejeita inválido', () => {
   const hooks = loadHooks();
   const valid = { biblioteca: { c1: { id: 'c1', questoes: [] } } };
-  assert.deepEqual(JSON.parse(JSON.stringify(hooks.parseLegadoV1(JSON.stringify(valid)))), {
-    ...valid,
-    config: { modoColeta: 'com-gabarito', modoCriacao: 'padrao' },
-    passada: 'criacao',
-    logs: [],
-    materiasPuladas: {},
-    reparoCriacao: null,
-    reparoCriacaoConcluido: false,
-    cronometriaCriacao: { amostras: [], atual: null }
-  });
+  const parsed = JSON.parse(JSON.stringify(hooks.parseLegadoV1(JSON.stringify(valid))));
+  assert.deepEqual(parsed.biblioteca, valid.biblioteca);
+  assert.equal(parsed.config.modoColeta, 'com-gabarito');
+  assert.equal(parsed.config.modoCriacao, 'padrao');
+  assert.equal(parsed.config.rapidoSemGabaritoAtivo, true);
+  assert.equal(parsed.config.rapidoDelayMin, 300);
+  assert.equal(parsed.config.rapidoDelayMax, 800);
+  assert.equal(parsed.config.rapidoPausaAbaOculta, true);
+  assert.deepEqual(parsed.logs, []);
+  assert.deepEqual(parsed.materiasPuladas, {});
+  assert.equal(parsed.reparoCriacao, null);
+  assert.equal(parsed.reparoCriacaoConcluido, false);
+  assert.deepEqual(parsed.cronometriaCriacao, { amostras: [], atual: null });
   assert.equal(hooks.parseLegadoV1('{not-json'), null);
   assert.equal(hooks.parseLegadoV1(JSON.stringify({ status: 'parado' })), null);
 });

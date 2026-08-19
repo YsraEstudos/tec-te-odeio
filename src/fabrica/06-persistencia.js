@@ -5,7 +5,43 @@
      * o banco guarda metadados, cadernos e questões separadamente.
      * =================================================================== */
     var RE_DATA_IMAGE_B64 = /data:image\/[a-zA-Z0-9.+-]+(?:;[a-zA-Z0-9=.-]+)*;base64,[A-Za-z0-9+/=\s]+/gi;
-    var IDB_DB = 'tec_fabrica_db';
+
+    // Identificador de instalação: o nome do banco IndexedDB ganha um sufixo
+    // aleatório (tec_fabrica_db_<16ch>) para evitar nome estático e colisões.
+    // Isto não é controle de acesso: código da mesma origem ainda pode listar
+    // bancos e ler localStorage. A semente fica em tec_prefs, com versão.
+    function obterIdInstalacao() {
+        try {
+            if (typeof window === 'undefined' || !window.localStorage) return '';
+            var bruto = window.localStorage.getItem('tec_prefs');
+            var prefs = null;
+            if (bruto) {
+                try { prefs = JSON.parse(bruto); } catch (e) { prefs = null; }
+            }
+            if (prefs && prefs.v === 1 && typeof prefs.i === 'string' && /^[A-Za-z0-9]{16}$/.test(prefs.i)) {
+                return prefs.i;
+            }
+            var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+            var novo = '';
+            var aleatorios = null;
+            try {
+                if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+                    aleatorios = new Uint32Array(16);
+                    window.crypto.getRandomValues(aleatorios);
+                }
+            } catch (e) { aleatorios = null; }
+            for (var c = 0; c < 16; c += 1) {
+                var sorteio = aleatorios ? aleatorios[c] : Math.floor(Math.random() * 0x100000000);
+                novo += chars.charAt(sorteio % chars.length);
+            }
+            window.localStorage.setItem('tec_prefs', JSON.stringify({ v: 1, i: novo }));
+            return novo;
+        } catch (e) {
+            return '';
+        }
+    }
+    var idInstalacao = obterIdInstalacao();
+    var IDB_DB = 'tec_fabrica_db' + (idInstalacao ? '_' + idInstalacao : '');
     var IDB_VERSION = 2;
     var IDB_LEGACY_STORE = 'estado';
     var IDB_META_STORE = 'meta';
@@ -106,6 +142,18 @@
             if (typeof valor.config.stealthWpm !== 'number' || valor.config.stealthWpm < 50) valor.config.stealthWpm = 220;
             if (typeof valor.config.stealthCoffeeBreakAtivo !== 'boolean') valor.config.stealthCoffeeBreakAtivo = true;
         }
+        // Mantém a configuração rápida completa mesmo quando o usuário está
+        // em outro modo e só depois alterna para stealth-offline.
+        if (typeof valor.config.rapidoSemGabaritoAtivo !== 'boolean') valor.config.rapidoSemGabaritoAtivo = true;
+        if (!Number.isFinite(Number(valor.config.rapidoDelayMin)) || Number(valor.config.rapidoDelayMin) < 100) valor.config.rapidoDelayMin = 300;
+        if (!Number.isFinite(Number(valor.config.rapidoDelayMax)) || Number(valor.config.rapidoDelayMax) < Number(valor.config.rapidoDelayMin)) valor.config.rapidoDelayMax = 800;
+        if (!Number.isFinite(Number(valor.config.rapidoPollInterval)) || Number(valor.config.rapidoPollInterval) < 50) valor.config.rapidoPollInterval = 120;
+        if (!Number.isFinite(Number(valor.config.rapidoCacheEsperaMs)) || Number(valor.config.rapidoCacheEsperaMs) < 0) valor.config.rapidoCacheEsperaMs = 2000;
+        if (typeof valor.config.rapidoCoffeeBreakAtivo !== 'boolean') valor.config.rapidoCoffeeBreakAtivo = true;
+        if (!Number.isFinite(Number(valor.config.rapidoCoffeeBreakIntervaloMin)) || Number(valor.config.rapidoCoffeeBreakIntervaloMin) < 1) valor.config.rapidoCoffeeBreakIntervaloMin = 30;
+        if (!Number.isFinite(Number(valor.config.rapidoCoffeeBreakIntervaloMax)) || Number(valor.config.rapidoCoffeeBreakIntervaloMax) < Number(valor.config.rapidoCoffeeBreakIntervaloMin)) valor.config.rapidoCoffeeBreakIntervaloMax = 60;
+        if (!Number.isFinite(Number(valor.config.rapidoCoffeeBreakDuracaoMedia)) || Number(valor.config.rapidoCoffeeBreakDuracaoMedia) < 0) valor.config.rapidoCoffeeBreakDuracaoMedia = 9000;
+        if (typeof valor.config.rapidoPausaAbaOculta !== 'boolean') valor.config.rapidoPausaAbaOculta = true;
         if (valor.config.modoCriacao !== 'criar-tudo') {
             valor.config.modoCriacao = 'padrao';
         }
@@ -335,8 +383,166 @@
         });
     }
 
+    function abrirBancoAntigoSeExistir() {
+        var factory = window.indexedDB;
+        function abrir() {
+            return new Promise(function (resolve) {
+                var req;
+                var inexistente = false;
+                try { req = factory.open('tec_fabrica_db'); } catch (e) { resolve(null); return; }
+                req.onupgradeneeded = function (evento) {
+                    if (evento.oldVersion === 0) {
+                        inexistente = true;
+                        try { req.transaction.abort(); } catch (e) {}
+                    }
+                };
+                req.onerror = function () { resolve(null); };
+                req.onsuccess = function () {
+                    if (inexistente) {
+                        try { req.result.close(); } catch (e) {}
+                        resolve(null);
+                        return;
+                    }
+                    resolve(req.result || null);
+                };
+            });
+        }
+        if (typeof factory.databases !== 'function') return abrir();
+        return factory.databases().then(function (lista) {
+            var existe = (lista || []).some(function (item) { return item && item.name === 'tec_fabrica_db'; });
+            return existe ? abrir() : null;
+        }).catch(abrir);
+    }
+
+    function lerStoresDoBanco(db, stores) {
+        if (!stores.length) return Promise.resolve([]);
+        return new Promise(function (resolve, reject) {
+            var tx;
+            var resultados = stores.map(function () { return []; });
+            try { tx = db.transaction(stores, 'readonly'); } catch (e) { reject(e); return; }
+            stores.forEach(function (store, i) {
+                var reqGet;
+                try { reqGet = tx.objectStore(store).getAll(); } catch (e) { try { tx.abort(); } catch (e2) {} reject(e); return; }
+                reqGet.onsuccess = function () { resultados[i] = reqGet.result || []; };
+                reqGet.onerror = function () { try { tx.abort(); } catch (e) {} };
+            });
+            tx.oncomplete = function () { resolve(resultados); };
+            tx.onerror = function () { reject(tx.error || new Error('falha ao ler banco antigo')); };
+            tx.onabort = function () { reject(tx.error || new Error('leitura do banco antigo abortada')); };
+        });
+    }
+
+    function lerLegadoDoBanco(db) {
+        if (!db.objectStoreNames.contains(IDB_LEGACY_STORE)) return Promise.resolve(null);
+        return new Promise(function (resolve, reject) {
+            var tx;
+            var legado = null;
+            var erroLeitura = null;
+            try { tx = db.transaction(IDB_LEGACY_STORE, 'readonly'); } catch (e) { reject(e); return; }
+            var reqLeg = tx.objectStore(IDB_LEGACY_STORE).get(CONFIG.storageKey);
+            reqLeg.onsuccess = function () {
+                var rec = reqLeg.result;
+                if (!rec || !rec.json) return;
+                legado = parseLegadoV1(rec.json);
+                if (!legado) {
+                    erroLeitura = new Error('legado antigo inválido');
+                    try { tx.abort(); } catch (e) {}
+                }
+            };
+            reqLeg.onerror = function () {
+                erroLeitura = reqLeg.error || new Error('falha ao ler legado antigo');
+                try { tx.abort(); } catch (e) {}
+            };
+            tx.oncomplete = function () { resolve(legado); };
+            tx.onerror = function () { reject(erroLeitura || tx.error || new Error('falha ao ler legado antigo')); };
+            tx.onabort = function () { reject(erroLeitura || tx.error || new Error('leitura do legado antigo abortada')); };
+        });
+    }
+
+    function copiarStoresParaBancoNovo(stores, resultados) {
+        if (!stores.length) return Promise.resolve();
+        return abrirIdb().then(function (dbNovo) {
+            return new Promise(function (resolve, reject) {
+                var txNovo;
+                try { txNovo = dbNovo.transaction(stores, 'readwrite'); } catch (e) { reject(e); return; }
+                txNovo.oncomplete = function () { resolve(); };
+                txNovo.onerror = function () { reject(txNovo.error || new Error('falha ao copiar banco antigo')); };
+                txNovo.onabort = function () { reject(txNovo.error || new Error('cópia do banco antigo abortada')); };
+                try {
+                    resultados.forEach(function (registros, i) {
+                        var alvo = txNovo.objectStore(stores[i]);
+                        registros.forEach(function (registro) { alvo.put(registro); });
+                    });
+                } catch (e) {
+                    try { txNovo.abort(); } catch (e2) {}
+                    reject(e);
+                }
+            });
+        });
+    }
+
+    function apagarBancoAntigo() {
+        return new Promise(function (resolve) {
+            var req;
+            try { req = window.indexedDB.deleteDatabase('tec_fabrica_db'); } catch (e) { resolve(false); return; }
+            req.onsuccess = function () { resolve(true); };
+            req.onerror = function () { resolve(false); };
+            req.onblocked = function () { resolve(false); };
+        });
+    }
+
+    // Migra de forma fail-safe: qualquer erro de leitura/escrita preserva o
+    // banco antigo. A exclusão só é solicitada após a cópia ser confirmada.
+    function migrarBancoAntigo() {
+        if (!idInstalacao || typeof window === 'undefined' || !window.indexedDB) return Promise.resolve(false);
+        var dbAntigo = null;
+        return abrirBancoAntigoSeExistir().then(function (db) {
+            dbAntigo = db;
+            if (!dbAntigo) return false;
+            var conhecidos = [IDB_META_STORE, IDB_CADERNOS_STORE, IDB_QUESTOES_STORE, IDB_LEGACY_STORE];
+            var nomes = [];
+            for (var i = 0; i < dbAntigo.objectStoreNames.length; i += 1) nomes.push(dbAntigo.objectStoreNames[i]);
+            if (nomes.some(function (nome) { return conhecidos.indexOf(nome) < 0; })) {
+                try { dbAntigo.close(); } catch (e) {}
+                dbAntigo = null;
+                return false;
+            }
+            var stores = [IDB_META_STORE, IDB_CADERNOS_STORE, IDB_QUESTOES_STORE].filter(function (nome) {
+                return dbAntigo.objectStoreNames.contains(nome);
+            });
+            return Promise.all([lerStoresDoBanco(dbAntigo, stores), lerLegadoDoBanco(dbAntigo)]).then(function (dados) {
+                var resultados = dados[0];
+                var legado = dados[1];
+                var temRegistros = resultados.some(function (lista) { return lista.length > 0; });
+                if (!temRegistros && !legado) {
+                    try { dbAntigo.close(); } catch (e) {}
+                    dbAntigo = null;
+                    return false;
+                }
+                var escrita = legado ? salvarSnapshot(legado) : Promise.resolve();
+                return escrita.then(function () { return copiarStoresParaBancoNovo(stores, resultados); }).then(function () {
+                    try { dbAntigo.close(); } catch (e) {}
+                    dbAntigo = null;
+                    return apagarBancoAntigo();
+                });
+            });
+        }).catch(function () {
+            if (dbAntigo) { try { dbAntigo.close(); } catch (e) {} }
+            return false;
+        });
+    }
+
     function carregarEstadoIdb() {
-        return carregarV2().then(function (v2) { return v2 || migrarV1(); });
+        if (!idInstalacao) return carregarV2().then(function (v2) { return v2 || migrarV1(); });
+        // Um banco novo já válido sempre vence. Isso evita que uma origem
+        // antiga, cuja exclusão ficou bloqueada, sobrescreva dados mais novos
+        // em boots seguintes.
+        return carregarV2().then(function (v2Existente) {
+            if (v2Existente) return v2Existente;
+            return migrarBancoAntigo().then(function () {
+                return carregarV2().then(function (v2) { return v2 || migrarV1(); });
+            });
+        });
     }
 
     function salvarEstadoIdb(valor) {

@@ -49,7 +49,13 @@
     function eAlvoTelemetria(entrada) {
         var url = urlDaEntradaTelemetria(entrada);
         if (!url) return false;
-        return dominioAlvo(url.hostname) || ANTITRACKER_CAMINHO.test(url.pathname);
+        if (dominioAlvo(url.hostname)) return true;
+        // Caminhos genéricos como /events e /metrics podem ser APIs legítimas
+        // do próprio Tec. O heurístico de caminho só vale fora da origem atual.
+        try {
+            if (typeof location !== 'undefined' && location.origin && url.origin === location.origin) return false;
+        } catch (e) {}
+        return ANTITRACKER_CAMINHO.test(url.pathname);
     }
 
     function marcarFuncao(funcao) {
@@ -184,9 +190,16 @@
         // webdriver é um sinal explícito de automação. Outros valores do
         // navigator não são falsificados: inconsistências aumentam a entropia.
         try {
-            var atual = Object.getOwnPropertyDescriptor(navigator, 'webdriver');
+            if (typeof navigator === 'undefined' || navigator.webdriver !== true) return;
+            var alvo = navigator;
+            var atual = Object.getOwnPropertyDescriptor(alvo, 'webdriver');
+            if (!atual) {
+                var prototipo = Object.getPrototypeOf(navigator);
+                var herdado = prototipo && Object.getOwnPropertyDescriptor(prototipo, 'webdriver');
+                if (herdado) { alvo = prototipo; atual = herdado; }
+            }
             if (!atual || atual.configurable !== false) {
-                Object.defineProperty(navigator, 'webdriver', {
+                Object.defineProperty(alvo, 'webdriver', {
                     get: function () { return undefined; },
                     enumerable: atual ? atual.enumerable : false,
                     configurable: true

@@ -152,8 +152,10 @@
         return id + '|' + (pos ? (pos.posicao + '/' + pos.total) : '?') + '|' + hash.toString(36);
     }
 
-    function aguardarQuestaoMudar(idAnterior, assinaturaAnterior, callback) {
-        workerTick(CONFIG.pollInterval, function () {
+    function aguardarQuestaoMudar(idAnterior, assinaturaAnterior, callback, opcoes) {
+        var intervalo = (opcoes && Number.isFinite(Number(opcoes.interval))) ? Number(opcoes.interval) : CONFIG.pollInterval;
+        var timeout = (opcoes && Number.isFinite(Number(opcoes.timeout))) ? Number(opcoes.timeout) : CONFIG.loadTimeout;
+        workerTick(intervalo, function () {
             // exige o ID da questão alterado E o conteúdo (article/texto) carregado;
             // quando uma assinatura anterior é informada, exige também que a
             // assinatura atual mude (rejeita artigo obsoleto).
@@ -162,7 +164,7 @@
             if (!questaoConteudoPronta()) return false;
             if (assinaturaAnterior && assinaturaQuestao() === assinaturaAnterior) return false;
             return true;
-        }, CONFIG.loadTimeout, callback);
+        }, timeout, callback);
     }
 
     function normalizarNumeroInterface(valor) {

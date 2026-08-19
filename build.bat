@@ -4,7 +4,7 @@ setlocal
 cd /d "%~dp0"
 
 node --version >nul 2>&1 || goto :error
-node scripts\build.mjs || goto :error
+node scripts\build.mjs %* || goto :error
 set /a test_files=0
 for /r test %%F in (*.test.mjs) do (
     set /a test_files+=1
